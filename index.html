@@ -936,7 +936,7 @@ function queueFastUiRefresh() {
 }
 
 const DATA_CACHE_KEY = 'sobmoei_df_cache_v1';
-const FETCH_TIMEOUT_MS = 10000;
+const FETCH_TIMEOUT_MS = 45000; // เพิ่มเวลารอ GAS เพื่อรองรับการบันทึกที่ช้า
 
 const MONTH_NAMES_SHORT = ['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'];
 const MONTH_NAMES_FULL  = ['มกราคม','กุมภาพันธ์','มีนาคม','เมษายน','พฤษภาคม','มิถุนายน','กรกฎาคม','สิงหาคม','กันยายน','ตุลาคม','พฤศจิกายน','ธันวาคม'];
@@ -1011,9 +1011,9 @@ function setDefaultDates() {
   ['onset_date','inv_followup_date'].forEach(id => { const el = document.getElementById(id); if(el) el.value = today; });
 }
 
-async function callGAS(action, payload = {}) {
+async function callGAS(action, payload = {}, timeoutMs = FETCH_TIMEOUT_MS) {
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
     const res = await fetch(`${GAS_BASE_URL}?action=${encodeURIComponent(action)}`, {
@@ -1881,9 +1881,44 @@ async function savePatient() {
   let action = "addDFPatient";
   if (editId) { payload.patient_id = editId; action = "updatePatient"; }
   else { payload.followup = 'ยังไม่ติดตาม'; payload.investigation_status = 'ยังไม่สอบสวน'; }
-  showLoader(editId ? "กำลังอัพเดตข้อมูล..." : "กำลังบันทึกข้อมูล...");
-  const res = await callGAS(action, payload);
+  const saveBtn = document.getElementById("btnSavePatient");
+  if (saveBtn && saveBtn.disabled) return;
+  if (saveBtn) {
+    saveBtn.disabled = true;
+    saveBtn.dataset.originalText = saveBtn.innerHTML;
+    saveBtn.innerHTML = editId ? "⏳ กำลังอัพเดต..." : "⏳ กำลังบันทึก...";
+  }
+
+  showLoader(editId ? "กำลังอัพเดตข้อมูล... กรุณารอสักครู่" : "กำลังบันทึกข้อมูล... กรุณารอสักครู่");
+  let res = await callGAS(action, payload, 45000);
   hideLoader();
+
+  // หาก GAS ตอบช้าจน timeout ให้ตรวจสอบฐานข้อมูลอีกครั้งก่อนแจ้งว่าล้มเหลว
+  if (!res.success && /เวลานานเกินกำหนด/.test(res.message || '')) {
+    showLoader("กำลังตรวจสอบว่าข้อมูลถูกบันทึกแล้วหรือไม่...");
+    await new Promise(r => setTimeout(r, 1200));
+    const verify = await callGAS("listPatients", {}, 20000);
+    hideLoader();
+    if (verify.success && Array.isArray(verify.data)) {
+      const matched = verify.data.find(p =>
+        String(p.hn || '').trim() === String(payload.hn || '').trim() &&
+        String(p.first_name || '').trim() === String(payload.first_name || '').trim() &&
+        String(p.last_name || '').trim() === String(payload.last_name || '').trim() &&
+        String(p.onset_date || '').slice(0,10) === String(payload.onset_date || '').slice(0,10) &&
+        String(p.subdistrict || '').trim() === String(payload.subdistrict || '').trim()
+      );
+      if (matched) {
+        res = { success: true, message: "✅ บันทึกสำเร็จ (ตรวจสอบจากฐานข้อมูลแล้ว)", data: matched };
+        payload.patient_id = matched.patient_id || payload.patient_id;
+      }
+    }
+  }
+
+  if (saveBtn) {
+    saveBtn.disabled = false;
+    saveBtn.innerHTML = saveBtn.dataset.originalText || (editId ? "🔄 อัพเดตข้อมูล" : "💾 บันทึกผู้ป่วยลงระบบ");
+  }
+
   if (res.success) {
     const savedRecord = {
       patient_id: editId || payload.patient_id || `DF-${String(patientsData.length + 1).padStart(3,'0')}`,
@@ -1908,7 +1943,7 @@ async function savePatient() {
     alert(res.message);
     scheduleBackgroundRefresh(120);
   } else {
-    alert("เกิดข้อผิดพลาด: " + res.message);
+    alert("ยังยืนยันการบันทึกไม่ได้: " + (res.message || "ไม่ทราบสาเหตุ") + "\n\nกรุณากดรีเฟรชข้อมูลล่าสุดก่อนบันทึกซ้ำ เพื่อป้องกันข้อมูลซ้ำ");
   }
 }
 
