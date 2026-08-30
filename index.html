@@ -291,7 +291,7 @@
       <div><h1>Dengue<br>Tracker</h1><small>สสอ.สบเมย</small></div>
     </div>
     <div class="nav-section-title">เมนูหลัก</div>
-    <button class="nav-btn active" onclick="showSection('dashboard',this)"><span>🏠</span> ภาพรวม Dashboard</button>
+    <button id="navExportData" id="navImportData" class="nav-btn active" onclick="showSection('dashboard',this)"><span>🏠</span> ภาพรวม Dashboard</button>
     <button class="nav-btn" onclick="showSection('patients',this)"><span>🏥</span> ทะเบียนผู้ป่วย</button>
     <button class="nav-btn" onclick="openPatientModal()"><span>➕</span> เพิ่มผู้ป่วยใหม่</button>
     <button class="nav-btn" onclick="showSection('investigation',this)"><span>🔍</span> สอบสวน/ติดตาม</button>
@@ -891,7 +891,7 @@ const IS_DEMO_MODE = false; // ตั้งเป็น false เมื่อเ
 const ALL_SUBDISTRICTS = ['สบเมย','แม่คะตวน','กองก๋อย','แม่สวด','ป่าโปง','แม่สามแลบ'];
 
 // ============================================================
-// AUTH — Secure V3.2 (ตรวจสอบกับ Google Apps Script)
+// AUTH — Secure V3.2.1 (ตรวจสอบกับ Google Apps Script)
 // ============================================================
 let currentUserRole = 'viewer';
 let currentUser = null;
@@ -992,6 +992,12 @@ function applyRolePermissions() {
 
   const adminNav = document.getElementById('adminUsersNav');
   if (adminNav) adminNav.classList.toggle('hidden', role !== 'admin');
+
+  // V3.2.1: Import/Export เป็น Admin-only โดยซ่อนจาก DOM ด้วย ID ที่แน่นอน
+  const importNav = document.getElementById('navImportData');
+  const exportNav = document.getElementById('navExportData');
+  if (importNav) importNav.style.display = role === 'admin' ? '' : 'none';
+  if (exportNav) exportNav.style.display = role === 'admin' ? '' : 'none';
 
   document.querySelectorAll('button').forEach(btn => {
     const oc = btn.getAttribute('onclick') || '';
@@ -1164,6 +1170,7 @@ function showLoader(text = "กำลังโหลดข้อมูล... �
 function hideLoader() { document.getElementById("globalLoader").style.display = "none"; }
 
 function triggerImportFile() {
+  if (currentUserRole !== 'admin') { alert('เฉพาะผู้ดูแลระบบเท่านั้นที่สามารถนำเข้าข้อมูลได้'); return; }
   const input = document.getElementById("importPatientFile");
   if (input) input.click();
 }
@@ -3200,6 +3207,7 @@ async function setupSheets() {
 }
 
 async function exportData() {
+  if (currentUserRole !== 'admin') { alert('เฉพาะผู้ดูแลระบบเท่านั้นที่สามารถส่งออกข้อมูลได้'); return; }
   if (IS_DEMO_MODE) {
     // Export ข้อมูล mock เป็น CSV
     if (!patientsData.length) { alert("ไม่มีข้อมูลให้ส่งออก"); return; }
