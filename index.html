@@ -259,7 +259,7 @@
     <div class="auth-form-group"><label>ชื่อผู้ใช้</label><input id="loginUsername" type="text" placeholder="กรอกชื่อผู้ใช้" /></div>
     <div class="auth-form-group"><label>รหัสผ่าน</label><input id="loginPassword" type="password" placeholder="กรอกรหัสผ่าน" /></div>
     <button class="btn btn-primary" style="width:100%;" onclick="handleLogin()">เข้าสู่ระบบ 🌿</button>
-    <span class="toggle-auth" onclick="toggleAuthView('register')">ยังไม่มีบัญชี? ลงทะเบียนที่นี่</span>
+    <span class="toggle-auth" onclick="toggleAuthView('register')">ยังไม่มีบัญชี? ส่งคำขอลงทะเบียน</span>
     <div id="loginMsg" style="margin-top:16px; color:#e53e3e; font-size:14px; display:none;"></div>
     <div class="auth-copyright">
       <div>🏥 สำนักงานสาธารณสุขอำเภอสบเมย</div>
@@ -273,7 +273,7 @@
   <div id="registerForm" class="auth-card glass hidden" style="border-radius:var(--radius-lg);">
     <div style="width:70px; height:70px; margin:0 auto 20px; border-radius:50%; background:linear-gradient(135deg,var(--pastel-green-dark),#58a582); display:grid; place-items:center; font-size:32px; box-shadow:0 8px 20px rgba(122,199,163,0.5);">📋</div>
     <h2>สร้างบัญชีใหม่</h2>
-    <p>ลงทะเบียนเพื่อเข้าใช้ระบบ</p>
+    <p>ลงทะเบียนเพื่อขอสิทธิ์เข้าใช้ระบบ (รอผู้ดูแลอนุมัติ)</p>
     <div class="auth-form-group"><label>ชื่อ-นามสกุล</label><input id="regName" type="text" placeholder="ชื่อ นามสกุล" /></div>
     <div class="auth-form-group"><label>ชื่อผู้ใช้</label><input id="regUsername" type="text" placeholder="ตั้งชื่อผู้ใช้" /></div>
     <div class="auth-form-group"><label>รหัสผ่าน</label><input id="regPassword" type="password" placeholder="ตั้งรหัสผ่าน" /></div>
@@ -837,26 +837,44 @@ const IS_DEMO_MODE = false; // ตั้งเป็น false เมื่อเ
 const ALL_SUBDISTRICTS = ['สบเมย','แม่คะตวน','กองก๋อย','แม่สวด','ป่าโปง','แม่สามแลบ'];
 
 // ============================================================
-// AUTH
+// AUTH — Secure V3 (ตรวจสอบกับ Google Apps Script)
 // ============================================================
-let usersDB = JSON.parse(localStorage.getItem('dengue_users')) || [
-  { name: 'ผู้ดูแลระบบ', username: 'admin', password: '1234', role: 'admin' }
-];
-let currentUserRole = 'user';
+let currentUserRole = 'viewer';
+let currentUser = null;
 
-function checkAuth() {
-  const activeUser = sessionStorage.getItem("active_user");
-  currentUserRole = sessionStorage.getItem("user_role") || 'user';
-  if (activeUser) {
-    document.getElementById("authScreen").classList.add("hidden");
-    document.getElementById("appContainer").classList.remove("hidden");
-    document.getElementById("displayUser").textContent = activeUser;
-    if (currentUserRole === 'admin') document.getElementById("adminBadge").classList.remove("hidden");
-    initApp();
-  } else {
-    document.getElementById("authScreen").classList.remove("hidden");
-    document.getElementById("appContainer").classList.add("hidden");
+async function checkAuth() {
+  const token = sessionStorage.getItem('auth_token');
+  if (!token) return showLoginScreen();
+
+  const res = await callGAS('me', {}, 15000, true);
+  if (!res.success || !res.user) {
+    clearAuthSession();
+    return showLoginScreen();
   }
+
+  currentUser = res.user;
+  currentUserRole = res.user.role || 'viewer';
+  sessionStorage.setItem('active_user', res.user.name || res.user.username || 'User');
+  sessionStorage.setItem('user_role', currentUserRole);
+  document.getElementById('authScreen').classList.add('hidden');
+  document.getElementById('appContainer').classList.remove('hidden');
+  document.getElementById('displayUser').textContent = res.user.name || res.user.username || 'User';
+  document.getElementById('adminBadge').classList.toggle('hidden', currentUserRole !== 'admin');
+  applyRolePermissions();
+  initApp();
+}
+
+function showLoginScreen() {
+  document.getElementById('authScreen').classList.remove('hidden');
+  document.getElementById('appContainer').classList.add('hidden');
+}
+
+function clearAuthSession() {
+  sessionStorage.removeItem('auth_token');
+  sessionStorage.removeItem('active_user');
+  sessionStorage.removeItem('user_role');
+  currentUser = null;
+  currentUserRole = 'viewer';
 }
 
 function toggleAuthView(view) {
@@ -866,41 +884,69 @@ function toggleAuthView(view) {
   document.getElementById('registerForm').classList.toggle('hidden', view === 'login');
 }
 
-function handleRegister() {
-  const name = document.getElementById("regName").value.trim();
-  const user = document.getElementById("regUsername").value.trim();
-  const pass = document.getElementById("regPassword").value.trim();
-  const msg = document.getElementById("regMsg");
+async function handleRegister() {
+  const name = document.getElementById('regName').value.trim();
+  const user = document.getElementById('regUsername').value.trim();
+  const pass = document.getElementById('regPassword').value;
+  const msg = document.getElementById('regMsg');
   msg.style.display = 'block';
-  if (!name || !user || !pass) { msg.style.color = '#e53e3e'; msg.textContent = "กรุณากรอกข้อมูลให้ครบทุกช่อง"; return; }
-  if (usersDB.find(u => u.username === user)) { msg.style.color = '#e53e3e'; msg.textContent = "ชื่อผู้ใช้นี้มีอยู่แล้ว!"; return; }
-  usersDB.push({ name, username: user, password: pass, role: 'user' });
-  localStorage.setItem('dengue_users', JSON.stringify(usersDB));
-  msg.style.color = '#155724';
-  msg.textContent = "✅ ลงทะเบียนสำเร็จ! กำลังสลับไปหน้าเข้าสู่ระบบ...";
-  setTimeout(() => { document.getElementById("loginUsername").value = user; toggleAuthView('login'); }, 1500);
-}
+  if (!name || !user || !pass) { msg.style.color='#e53e3e'; msg.textContent='กรุณากรอกข้อมูลให้ครบทุกช่อง'; return; }
+  if (pass.length < 8) { msg.style.color='#e53e3e'; msg.textContent='รหัสผ่านต้องมีอย่างน้อย 8 ตัวอักษร'; return; }
 
-function handleLogin() {
-  const u = document.getElementById("loginUsername").value.trim();
-  const p = document.getElementById("loginPassword").value.trim();
-  const msg = document.getElementById("loginMsg");
-  const found = usersDB.find(x => x.username === u && x.password === p);
-  if (found) {
-    sessionStorage.setItem("active_user", found.name);
-    sessionStorage.setItem("user_role", found.role || 'user');
-    checkAuth();
+  msg.style.color='#668282'; msg.textContent='กำลังส่งคำขอลงทะเบียน...';
+  const res = await callGAS('register', { name, username:user, password:pass }, 20000, false);
+  if (res.success) {
+    msg.style.color='#155724';
+    msg.textContent='✅ ' + (res.message || 'ส่งคำขอลงทะเบียนแล้ว รอผู้ดูแลระบบอนุมัติ');
+    document.getElementById('regPassword').value='';
   } else {
-    msg.style.display = 'block';
-    msg.textContent = "ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง";
+    msg.style.color='#e53e3e'; msg.textContent=res.message || 'ลงทะเบียนไม่สำเร็จ';
   }
 }
 
-function logout() {
-  if (confirm("ต้องการออกจากระบบหรือไม่?")) { sessionStorage.clear(); location.reload(); }
+async function handleLogin() {
+  const u = document.getElementById('loginUsername').value.trim();
+  const p = document.getElementById('loginPassword').value;
+  const msg = document.getElementById('loginMsg');
+  msg.style.display='block';
+  if (!u || !p) { msg.textContent='กรุณากรอกชื่อผู้ใช้และรหัสผ่าน'; return; }
+
+  msg.style.color='#668282'; msg.textContent='กำลังเข้าสู่ระบบ...';
+  const res = await callGAS('login', { username:u, password:p }, 20000, false);
+  if (res.success && res.token && res.user) {
+    sessionStorage.setItem('auth_token', res.token);
+    sessionStorage.setItem('active_user', res.user.name || res.user.username);
+    sessionStorage.setItem('user_role', res.user.role || 'viewer');
+    document.getElementById('loginPassword').value='';
+    await checkAuth();
+  } else {
+    msg.style.color='#e53e3e'; msg.textContent=res.message || 'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง';
+  }
 }
 
-window.addEventListener("load", checkAuth);
+async function logout() {
+  if (!confirm('ต้องการออกจากระบบหรือไม่?')) return;
+  try { await callGAS('logout', {}, 10000, true); } catch(e) {}
+  clearAuthSession();
+  sessionStorage.removeItem(DATA_CACHE_KEY);
+  location.reload();
+}
+
+function applyRolePermissions() {
+  const role = currentUserRole || 'viewer';
+  const restricted = role === 'viewer';
+  document.querySelectorAll('button').forEach(btn => {
+    const oc = btn.getAttribute('onclick') || '';
+    if (restricted && /(openPatientModal|savePatient|saveInvestigation|triggerImportFile|exportData|setupSheets|deletePatient|editPatient)/.test(oc)) {
+      btn.style.display='none';
+    }
+    if (role === 'staff' && /(setupSheets|deletePatient)/.test(oc)) {
+      btn.style.display='none';
+    }
+  });
+}
+
+window.addEventListener('load', checkAuth);
 
 // ============================================================
 // DATA & STATE
@@ -1011,30 +1057,34 @@ function setDefaultDates() {
   ['onset_date','inv_followup_date'].forEach(id => { const el = document.getElementById(id); if(el) el.value = today; });
 }
 
-async function callGAS(action, payload = {}, timeoutMs = FETCH_TIMEOUT_MS) {
+async function callGAS(action, payload = {}, timeoutMs = FETCH_TIMEOUT_MS, includeAuth = true) {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  const bodyPayload = { ...payload };
+  if (includeAuth) {
+    const token = sessionStorage.getItem('auth_token');
+    if (token) bodyPayload.auth_token = token;
+  }
 
   try {
     const res = await fetch(`${GAS_BASE_URL}?action=${encodeURIComponent(action)}`, {
-      method: "POST",
-      headers: { "Content-Type": "text/plain;charset=utf-8" },
-      body: JSON.stringify(payload),
-      cache: "no-store",
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify(bodyPayload),
+      cache: 'no-store',
       signal: controller.signal
     });
-
-    if (!res.ok) {
-      throw new Error(`HTTP ${res.status}`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const json = await res.json();
+    if (json && ['AUTH_REQUIRED','AUTH_INVALID','AUTH_EXPIRED','AUTH_DISABLED'].includes(json.code)) {
+      clearAuthSession();
+      showLoginScreen();
     }
-
-    return await res.json();
+    return json;
   } catch (e) {
-    if (e.name === 'AbortError') {
-      return { success: false, message: "การเชื่อมต่อฐานข้อมูลใช้เวลานานเกินกำหนด" };
-    }
+    if (e.name === 'AbortError') return { success:false, message:'การเชื่อมต่อฐานข้อมูลใช้เวลานานเกินกำหนด' };
     console.error(`callGAS(${action}) failed`, e);
-    return { success: false, message: "เชื่อมต่อฐานข้อมูลไม่สำเร็จ" };
+    return { success:false, message:'เชื่อมต่อฐานข้อมูลไม่สำเร็จ' };
   } finally {
     clearTimeout(timeoutId);
   }
@@ -1876,7 +1926,8 @@ async function savePatient() {
     occupation: document.getElementById("occupation").value, village: document.getElementById("village").value,
     subdistrict: document.getElementById("subdistrict").value, district: 'สบเมย',
     onset_date: document.getElementById("onset_date").value, note: document.getElementById("note").value,
-    provider: sessionStorage.getItem("active_user") || 'ระบบ'
+    provider: sessionStorage.getItem("active_user") || 'ระบบ',
+    client_request_id: editId ? '' : (crypto.randomUUID ? crypto.randomUUID() : ('req-' + Date.now() + '-' + Math.random().toString(36).slice(2)))
   };
   let action = "addDFPatient";
   if (editId) { payload.patient_id = editId; action = "updatePatient"; }
@@ -1972,7 +2023,8 @@ async function saveInvestigation() {
   const payload = {
     patient_id: pid,
     followup_date: document.getElementById("inv_followup_date").value,
-    investigation_status: invStatus, followup_status: folStatus, note
+    investigation_status: invStatus, followup_status: folStatus, note,
+    provider: sessionStorage.getItem('active_user') || 'ระบบ'
   };
   showLoader();
   const res = await callGAS("addInvestigation", payload);
