@@ -3,7 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>ระบบระบาดวิทยาไข้เลือดออก อำเภอสบเมย</title>
+  <!-- Secure V3.2.2 Viewer Read-only Fix -->
+<title>ระบบระบาดวิทยาไข้เลือดออก อำเภอสบเมย</title>
   <script src="assets/vendor/chart.js"></script>
   <script src="assets/vendor/xlsx.full.min.js"></script>
   <link rel="stylesheet" href="assets/vendor/leaflet.css" />
@@ -294,7 +295,7 @@
     <button id="navExportData" id="navImportData" class="nav-btn active" onclick="showSection('dashboard',this)"><span>🏠</span> ภาพรวม Dashboard</button>
     <button class="nav-btn" onclick="showSection('patients',this)"><span>🏥</span> ทะเบียนผู้ป่วย</button>
     <button class="nav-btn" onclick="openPatientModal()"><span>➕</span> เพิ่มผู้ป่วยใหม่</button>
-    <button class="nav-btn" onclick="showSection('investigation',this)"><span>🔍</span> สอบสวน/ติดตาม</button>
+    <button id="navInvestigation" class="nav-btn" onclick="showSection('investigation',this)"><span>🔍</span> สอบสวน/ติดตาม</button>
     <button class="nav-btn" onclick="showSection('summary',this)"><span>🧠</span> AI วิเคราะห์รายงาน</button>
     <div class="nav-section-title">เครื่องมือ</div>
     <button class="nav-btn" onclick="refreshAllData(true)"><span>🔄</span> รีเฟรชข้อมูลล่าสุด</button>
@@ -999,11 +1000,15 @@ function applyRolePermissions() {
   if (importNav) importNav.style.display = role === 'admin' ? '' : 'none';
   if (exportNav) exportNav.style.display = role === 'admin' ? '' : 'none';
 
+  // V3.2.2: Viewer เป็น read-only — ไม่ให้เข้าเมนูสอบสวน/ติดตาม
+  const investigationNav = document.getElementById('navInvestigation');
+  if (investigationNav) investigationNav.style.display = role === 'viewer' ? 'none' : '';
+
   document.querySelectorAll('button').forEach(btn => {
     const oc = btn.getAttribute('onclick') || '';
 
     // Viewer: ดู Dashboard/กราฟ/AI ได้ แต่แก้ไขข้อมูลไม่ได้
-    if (restricted && /(openPatientModal|savePatient|saveInvestigation|triggerImportFile|exportData|setupSheets|deletePatient|editPatient)/.test(oc)) {
+    if (restricted && /(openPatientModal|savePatient|saveInvestigation|fillInvestigationFromPatient|triggerImportFile|exportData|setupSheets|deletePatient|editPatient)/.test(oc)) {
       btn.style.display='none';
     }
 
@@ -2940,21 +2945,47 @@ function renderPatientTable() {
   if (!Array.isArray(patientsData)) patientsData = [];
   const tbody = document.getElementById("patientTableBody");
   if (!tbody) return;
-  const search = (document.getElementById("searchPatient").value || "").toLowerCase();
+  const searchEl = document.getElementById("searchPatient");
+  if (searchEl) {
+    searchEl.placeholder = currentUserRole === 'viewer'
+      ? '🔍 ค้นหารหัสผู้ป่วย, หมู่บ้าน...'
+      : '🔍 ค้นหาชื่อ, HN, หมู่บ้าน...';
+  }
+  const search = (searchEl?.value || "").toLowerCase();
   const sd = document.getElementById("filterSubdistrict").value;
   const fo = document.getElementById("filterFollowup").value;
   const inv = document.getElementById("filterInvestigate").value;
   let arr = [...patientsData];
-  if (search) arr = arr.filter(p => `${p.first_name} ${p.last_name}`.toLowerCase().includes(search) || (p.patient_id||'').toLowerCase().includes(search) || (p.village||'').toLowerCase().includes(search));
+  if (search) arr = arr.filter(p => `${p.first_name || ''} ${p.last_name || ''}`.toLowerCase().includes(search) || (p.patient_id||'').toLowerCase().includes(search) || (p.village||'').toLowerCase().includes(search));
   if (sd) arr = arr.filter(p => p.subdistrict === sd);
   if (fo) arr = arr.filter(p => p.followup === fo);
   if (inv) arr = arr.filter(p => p.investigation_status === inv);
   if (!arr.length) { tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; color:var(--text-muted);">ไม่พบข้อมูล</td></tr>`; return; }
   const isAdmin = currentUserRole === 'admin';
-  tbody.innerHTML = arr.map(p => `
+  const isStaff = currentUserRole === 'staff';
+  const isViewer = currentUserRole === 'viewer';
+
+  tbody.innerHTML = arr.map(p => {
+    // Backend intentionally removes name fields for Viewer.
+    // Render a clear privacy label instead of "undefined undefined".
+    const firstName = (p.first_name || '').trim();
+    const lastName = (p.last_name || '').trim();
+    const displayName = isViewer
+      ? '<span style="color:var(--text-muted);font-size:12px;">🔒 ปกปิดตามสิทธิ์</span>'
+      : ((firstName + ' ' + lastName).trim() || '-');
+
+    const actionButtons = isViewer
+      ? '<span style="color:var(--text-muted);font-size:12px;">ดูข้อมูลเท่านั้น</span>'
+      : `
+          <button class="btn btn-secondary" style="padding:4px 8px; font-size:12px;" onclick="fillInvestigationFromPatient('${p.patient_id}')">อัพเดตสถานะ</button>
+          ${isAdmin ? `<button class="btn" style="padding:4px 8px; font-size:12px; background:#fff3cd; border:1px solid #ffe8a1; color:#856404;" onclick="editPatient('${p.patient_id}')">✏️ แก้ไข</button>` : ''}
+          ${isAdmin ? `<button class="btn" style="padding:4px 8px; font-size:12px; background:#ffe1e6; border:1px solid #f0b7c7; color:#9b1c3c;" onclick="deletePatient('${p.patient_id}')">🗑️ ลบ</button>` : ''}
+        `;
+
+    return `
     <tr>
-      <td><strong>${p.patient_id}</strong></td>
-      <td>${p.first_name} ${p.last_name}</td>
+      <td><strong>${p.patient_id || '-'}</strong></td>
+      <td>${displayName}</td>
       <td>${p.age || '-'}</td>
       <td>${p.village || '-'}</td>
       <td>${p.subdistrict || '-'}</td>
@@ -2962,12 +2993,14 @@ function renderPatientTable() {
       <td>${p.investigation_status === 'สอบสวนแล้ว' ? '<span class="badge badge-success">สอบสวนแล้ว</span>' : '<span class="badge badge-danger">ยังไม่สอบสวน</span>'}</td>
       <td style="text-align:center;">
         <div style="display:flex; gap:5px; justify-content:center; flex-wrap:wrap;">
-          <button class="btn btn-secondary" style="padding:4px 8px; font-size:12px;" onclick="fillInvestigationFromPatient('${p.patient_id}')">อัพเดตสถานะ</button>
-          ${isAdmin ? `<button class="btn" style="padding:4px 8px; font-size:12px; background:#fff3cd; border:1px solid #ffe8a1; color:#856404;" onclick="editPatient('${p.patient_id}')">✏️ แก้ไข</button>` : ''}
-          ${isAdmin ? `<button class="btn" style="padding:4px 8px; font-size:12px; background:#ffe1e6; border:1px solid #f0b7c7; color:#9b1c3c;" onclick="deletePatient('${p.patient_id}')">🗑️ ลบ</button>` : ''}
+          ${actionButtons}
         </div>
       </td>
-    </tr>`).join("");
+    </tr>`;
+  }).join("");
+
+  // Dynamic rows are created after applyRolePermissions(), so enforce again here.
+  applyRolePermissions();
 }
 
 function populateSubdistrictFilters() {
@@ -2986,6 +3019,10 @@ function goToPatients(filterType) {
 }
 
 function fillInvestigationFromPatient(pid) {
+  if (currentUserRole === 'viewer') {
+    alert('บัญชี Viewer เป็นสิทธิ์ดูข้อมูลเท่านั้น ไม่สามารถแก้ไขหรือสอบสวนข้อมูลได้');
+    return;
+  }
   showSection("investigation", document.querySelectorAll(".nav-btn")[3]);
   document.getElementById("inv_patient_id").value = pid;
   window.scrollTo({ top: 0, behavior: "smooth" });
@@ -3586,3 +3623,4 @@ function createMockDataForPreview() {
 </script>
 </body>
 </html>
+
