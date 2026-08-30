@@ -891,7 +891,7 @@ const IS_DEMO_MODE = false; // ตั้งเป็น false เมื่อเ
 const ALL_SUBDISTRICTS = ['สบเมย','แม่คะตวน','กองก๋อย','แม่สวด','ป่าโปง','แม่สามแลบ'];
 
 // ============================================================
-// AUTH — Secure V3.1 (ตรวจสอบกับ Google Apps Script)
+// AUTH — Secure V3.2 (ตรวจสอบกับ Google Apps Script)
 // ============================================================
 let currentUserRole = 'viewer';
 let currentUser = null;
@@ -995,10 +995,19 @@ function applyRolePermissions() {
 
   document.querySelectorAll('button').forEach(btn => {
     const oc = btn.getAttribute('onclick') || '';
+
+    // Viewer: ดู Dashboard/กราฟ/AI ได้ แต่แก้ไขข้อมูลไม่ได้
     if (restricted && /(openPatientModal|savePatient|saveInvestigation|triggerImportFile|exportData|setupSheets|deletePatient|editPatient)/.test(oc)) {
       btn.style.display='none';
     }
-    if (role === 'staff' && /(setupSheets|deletePatient)/.test(oc)) {
+
+    // Staff: เพิ่ม/แก้ไข/สอบสวนได้ แต่ห้ามติดตั้งฐาน, ลบ, Import/Export
+    if (role === 'staff' && /(setupSheets|deletePatient|triggerImportFile|exportData)/.test(oc)) {
+      btn.style.display='none';
+    }
+
+    // Import/Export เป็น Admin only
+    if (role !== 'admin' && /(triggerImportFile|exportData)/.test(oc)) {
       btn.style.display='none';
     }
   });
@@ -3569,4 +3578,3 @@ function createMockDataForPreview() {
 </script>
 </body>
 </html>
-
