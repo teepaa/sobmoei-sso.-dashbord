@@ -301,6 +301,7 @@
     <button class="nav-btn" onclick="triggerImportFile()"><span>📤</span> นำเข้าข้อมูล (Excel/CSV)</button>
     <button class="nav-btn" onclick="exportData()"><span>📥</span> ส่งออกข้อมูล (CSV)</button>
     <button class="nav-btn" onclick="setupSheets()"><span>🧾</span> ติดตั้งฐานข้อมูลใหม่</button>
+    <button id="adminUsersNav" class="nav-btn hidden" onclick="openUserManagement(this)"><span>👥</span> จัดการผู้ใช้งาน</button>
     <button class="nav-btn" onclick="logout()"><span>🚪</span> ออกจากระบบ</button>
     <div style="margin-top:auto; padding-top:30px;">
       <div class="glass" style="padding:15px; border-radius:12px; text-align:center; font-size:13px; background:#f4fbf7;">
@@ -764,6 +765,59 @@
         <div id="summaryResult" style="margin-top:20px; padding:20px; border-radius:16px; background:white; line-height:1.8; display:none; border:1px solid var(--border-color); font-size:15px;"></div>
       </div>
     </section>
+
+    <!-- ADMIN USER MANAGEMENT -->
+    <section id="adminUsers" class="section">
+      <div class="card glass" style="margin-bottom:18px;">
+        <h3 class="panel-title">👥 จัดการผู้ใช้งาน</h3>
+        <p class="panel-subtitle">สำหรับผู้ดูแลระบบ: อนุมัติบัญชี กำหนดสิทธิ์ ระงับบัญชี และรีเซ็ตรหัสผ่าน</p>
+
+        <div style="display:flex; gap:10px; flex-wrap:wrap; margin:12px 0 18px;">
+          <button class="btn btn-primary" onclick="loadAdminUsers()">🔄 รีเฟรชรายชื่อ</button>
+        </div>
+
+        <div style="overflow-x:auto;">
+          <table style="width:100%; border-collapse:collapse; min-width:760px;">
+            <thead>
+              <tr style="background:#eef8f2;">
+                <th style="padding:10px; text-align:left;">ชื่อ</th>
+                <th style="padding:10px; text-align:left;">Username</th>
+                <th style="padding:10px; text-align:left;">สถานะ</th>
+                <th style="padding:10px; text-align:left;">สิทธิ์</th>
+                <th style="padding:10px; text-align:left;">เข้าใช้ล่าสุด</th>
+                <th style="padding:10px; text-align:center;">จัดการ</th>
+              </tr>
+            </thead>
+            <tbody id="adminUsersBody">
+              <tr><td colspan="6" style="padding:18px; text-align:center;">กด “รีเฟรชรายชื่อ” เพื่อโหลดข้อมูล</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="card glass" style="max-width:680px;">
+        <h3 class="panel-title">🔐 เปลี่ยนรหัสผ่านของฉัน</h3>
+        <p class="panel-subtitle">แนะนำให้เปลี่ยนรหัสเริ่มต้นของ Admin ก่อนใช้งานข้อมูลจริง</p>
+        <div class="form-grid">
+          <div class="form-full">
+            <label>รหัสผ่านปัจจุบัน</label>
+            <input id="adminCurrentPassword" type="password" autocomplete="current-password">
+          </div>
+          <div>
+            <label>รหัสผ่านใหม่</label>
+            <input id="adminNewPassword" type="password" autocomplete="new-password">
+          </div>
+          <div>
+            <label>ยืนยันรหัสผ่านใหม่</label>
+            <input id="adminConfirmPassword" type="password" autocomplete="new-password">
+          </div>
+          <div class="form-full">
+            <button class="btn btn-primary" onclick="changeMyPassword()">🔑 เปลี่ยนรหัสผ่าน</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
   </main>
 </div>
 
@@ -837,7 +891,7 @@ const IS_DEMO_MODE = false; // ตั้งเป็น false เมื่อเ
 const ALL_SUBDISTRICTS = ['สบเมย','แม่คะตวน','กองก๋อย','แม่สวด','ป่าโปง','แม่สามแลบ'];
 
 // ============================================================
-// AUTH — Secure V3 (ตรวจสอบกับ Google Apps Script)
+// AUTH — Secure V3.1 (ตรวจสอบกับ Google Apps Script)
 // ============================================================
 let currentUserRole = 'viewer';
 let currentUser = null;
@@ -935,6 +989,10 @@ async function logout() {
 function applyRolePermissions() {
   const role = currentUserRole || 'viewer';
   const restricted = role === 'viewer';
+
+  const adminNav = document.getElementById('adminUsersNav');
+  if (adminNav) adminNav.classList.toggle('hidden', role !== 'admin');
+
   document.querySelectorAll('button').forEach(btn => {
     const oc = btn.getAttribute('onclick') || '';
     if (restricted && /(openPatientModal|savePatient|saveInvestigation|triggerImportFile|exportData|setupSheets|deletePatient|editPatient)/.test(oc)) {
@@ -2987,6 +3045,137 @@ async function generateAISummary() {
 // ============================================================
 // TOOLS
 // ============================================================
+
+// ============================================================
+// ADMIN — User Management V3.1
+// ============================================================
+async function openUserManagement(btn) {
+  if (currentUserRole !== 'admin') {
+    alert('เมนูนี้สำหรับผู้ดูแลระบบเท่านั้น');
+    return;
+  }
+  showSection('adminUsers', btn);
+  await loadAdminUsers();
+}
+
+function roleLabel_(role) {
+  return role === 'admin' ? 'Admin' : role === 'staff' ? 'เจ้าหน้าที่' : 'ผู้ดูข้อมูล';
+}
+
+function statusLabel_(status) {
+  return status === 'active' ? '✅ ใช้งาน' : status === 'pending' ? '⏳ รออนุมัติ' : '⛔ ระงับ';
+}
+
+function escapeHtml_(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
+async function loadAdminUsers() {
+  if (currentUserRole !== 'admin') return;
+  const body = document.getElementById('adminUsersBody');
+  if (!body) return;
+  body.innerHTML = '<tr><td colspan="6" style="padding:18px;text-align:center;">กำลังโหลด...</td></tr>';
+
+  const res = await callGAS('listUsers', {}, 20000, true);
+  if (!res.success) {
+    body.innerHTML = `<tr><td colspan="6" style="padding:18px;text-align:center;color:#c0392b;">${escapeHtml_(res.message || 'โหลดรายชื่อไม่สำเร็จ')}</td></tr>`;
+    return;
+  }
+
+  const rows = Array.isArray(res.data) ? res.data : [];
+  if (!rows.length) {
+    body.innerHTML = '<tr><td colspan="6" style="padding:18px;text-align:center;">ยังไม่มีบัญชีผู้ใช้</td></tr>';
+    return;
+  }
+
+  body.innerHTML = rows.map(u => {
+    const username = escapeHtml_(u.username);
+    const isMainAdmin = String(u.username).toLowerCase() === 'admin';
+    const roleSelect = `
+      <select id="role_${username}" style="padding:7px;border-radius:8px;">
+        <option value="viewer" ${u.role==='viewer'?'selected':''}>Viewer</option>
+        <option value="staff" ${u.role==='staff'?'selected':''}>Staff</option>
+        <option value="admin" ${u.role==='admin'?'selected':''}>Admin</option>
+      </select>`;
+    const approveText = u.status === 'pending' ? '✅ อนุมัติ' : '💾 บันทึกสิทธิ์';
+    return `
+      <tr style="border-top:1px solid #e5ece8;">
+        <td style="padding:10px;">${escapeHtml_(u.name)}</td>
+        <td style="padding:10px;"><code>${username}</code></td>
+        <td style="padding:10px;">${statusLabel_(u.status)}</td>
+        <td style="padding:10px;">${roleSelect}</td>
+        <td style="padding:10px;">${escapeHtml_(u.last_login || '-')}</td>
+        <td style="padding:10px;text-align:center;white-space:nowrap;">
+          <button class="btn btn-primary" style="padding:7px 10px;margin:2px;" onclick="approveOrUpdateUser('${username}')">${approveText}</button>
+          <button class="btn btn-secondary" style="padding:7px 10px;margin:2px;" onclick="resetUserPassword('${username}')">🔑 รีเซ็ต</button>
+          ${isMainAdmin ? '' : `<button class="btn btn-secondary" style="padding:7px 10px;margin:2px;background:#ffd6d6;color:#8b1e1e;" onclick="disableUserAccount('${username}')">⛔ ระงับ</button>`}
+        </td>
+      </tr>`;
+  }).join('');
+}
+
+async function approveOrUpdateUser(username) {
+  const roleEl = document.getElementById('role_' + username);
+  const role = roleEl ? roleEl.value : 'staff';
+  if (!confirm(`ยืนยันกำหนดสิทธิ์ ${roleLabel_(role)} ให้ ${username} ?`)) return;
+
+  const res = await callGAS('approveUser', { username, role }, 20000, true);
+  alert(res.message || (res.success ? 'ดำเนินการเรียบร้อย' : 'ดำเนินการไม่สำเร็จ'));
+  if (res.success) await loadAdminUsers();
+}
+
+async function disableUserAccount(username) {
+  if (!confirm(`ต้องการระงับบัญชี ${username} หรือไม่?`)) return;
+  const res = await callGAS('disableUser', { username }, 20000, true);
+  alert(res.message || (res.success ? 'ระงับบัญชีเรียบร้อย' : 'ดำเนินการไม่สำเร็จ'));
+  if (res.success) await loadAdminUsers();
+}
+
+async function resetUserPassword(username) {
+  if (!confirm(`รีเซ็ตรหัสผ่านของ ${username} หรือไม่? เซสชันเดิมของผู้ใช้นี้จะถูกยกเลิก`)) return;
+  const res = await callGAS('resetUserPassword', { username }, 20000, true);
+  if (!res.success) {
+    alert(res.message || 'รีเซ็ตรหัสผ่านไม่สำเร็จ');
+    return;
+  }
+  alert(`รีเซ็ตรหัสผ่านสำเร็จ\n\nUsername: ${res.username}\nรหัสผ่านชั่วคราว: ${res.temporary_password}\n\nกรุณาส่งรหัสนี้ให้เจ้าของบัญชีผ่านช่องทางที่ปลอดภัย และให้เปลี่ยนรหัสหลังเข้าสู่ระบบ`);
+  await loadAdminUsers();
+}
+
+async function changeMyPassword() {
+  const currentPassword = document.getElementById('adminCurrentPassword').value;
+  const newPassword = document.getElementById('adminNewPassword').value;
+  const confirmPassword = document.getElementById('adminConfirmPassword').value;
+
+  if (!currentPassword || !newPassword || !confirmPassword) {
+    alert('กรุณากรอกรหัสผ่านให้ครบ');
+    return;
+  }
+  if (newPassword.length < 8) {
+    alert('รหัสผ่านใหม่ต้องมีอย่างน้อย 8 ตัวอักษร');
+    return;
+  }
+  if (newPassword !== confirmPassword) {
+    alert('รหัสผ่านใหม่และยืนยันรหัสผ่านไม่ตรงกัน');
+    return;
+  }
+
+  const res = await callGAS('changePassword', {
+    current_password: currentPassword,
+    new_password: newPassword
+  }, 20000, true);
+
+  alert(res.message || (res.success ? 'เปลี่ยนรหัสผ่านเรียบร้อย' : 'เปลี่ยนรหัสผ่านไม่สำเร็จ'));
+  if (res.success) {
+    document.getElementById('adminCurrentPassword').value = '';
+    document.getElementById('adminNewPassword').value = '';
+    document.getElementById('adminConfirmPassword').value = '';
+  }
+}
+
 function showSection(id, btn = null) {
   document.querySelectorAll(".section").forEach(s => s.classList.remove("active"));
   document.getElementById(id).classList.add("active");
@@ -3380,3 +3569,4 @@ function createMockDataForPreview() {
 </script>
 </body>
 </html>
+
