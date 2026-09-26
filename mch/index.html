@@ -72,7 +72,7 @@ function $(id){ return document.getElementById(id); }
 const GAS_WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbyoKTudvD3zo8rK7W8jLdSB9ms_LvYi17MHPHLpz4kmKP0wzkLlL6jPSjxgtJEWZryE/exec';
 
 async function run(fn, ...args){
-  if (!GAS_WEB_APP_URL || GAS_WEB_APP_URL.includes() {
+  if (!GAS_WEB_APP_URL || GAS_WEB_APP_URL.includes('PASTE_YOUR_GAS_WEB_APP')) {
     throw new Error('ยังไม่ได้ตั้งค่า GAS_WEB_APP_URL ในไฟล์ mch/index.html'));
   }
   const response = await fetch(GAS_WEB_APP_URL, {
