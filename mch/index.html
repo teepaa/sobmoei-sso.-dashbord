@@ -1,0 +1,860 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ระบบงานอนามัยแม่และเด็ก อำเภอสบเมย - Secure V1.4.3b</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <script src="https://cdn.sheetjs.com/xlsx-0.20.0/package/dist/xlsx.full.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    body { font-family: Sarabun, sans-serif; background:linear-gradient(135deg,#f8fbff 0%,#f2fff8 48%,#fff7fb 100%); color:#243244; }
+    .btn { padding:10px 14px; border-radius:10px; font-weight:700; transition:.18s ease; }
+    .btn:hover { transform:translateY(-1px); }
+    .input { width:100%; border:1px solid #d6dee8; border-radius:10px; padding:9px 12px; background:white; }
+    .card { background:rgba(255,255,255,.94); border:1px solid rgba(214,222,232,.9); border-radius:18px; box-shadow:0 12px 30px rgba(70,92,120,.08); }
+    .metric { position:relative; overflow:hidden; min-height:118px; border-radius:18px; padding:18px; box-shadow:0 14px 28px rgba(70,92,120,.10); }
+    .metric:after { content:""; position:absolute; right:-24px; top:-24px; width:96px; height:96px; border-radius:999px; background:rgba(255,255,255,.45); }
+    .chart-box { height:310px; }
+    .soft-table tbody tr:hover { background:#f8fbff; }
+    .topbar-btn { padding:7px 14px; border-radius:9px; font-weight:600; transition:.15s ease; font-size:.875rem; display:inline-flex; align-items:center; gap:4px; white-space:nowrap; cursor:pointer; border:none; }
+    .topbar-btn:hover { transform:translateY(-1px); filter:brightness(1.04); }
+    .kpi-card { border-radius:14px; padding:14px 16px; border:1px solid; }
+    .ai-badge { display:inline-block; padding:2px 8px; border-radius:99px; font-size:.7rem; font-weight:700; }
+  </style>
+</head>
+<body>
+  <div id="app" class="min-h-screen"></div>
+
+<script>
+// GitHub Pages build: frontend hosted on GitHub, data/auth remain on GAS + Google Sheets.
+let state = { boot:null, user:null, records:[], users:[], tab:'dashboard', editing:null, filterHospital:'All', filterFiscalYear:'', loading:false };
+let charts = {};
+const NUM_FIELDS = ['pregnantCarry','riskLevel0','riskLevel1','riskLevel2','riskLevel3','pregnantForeign','deliveryHospital','deliveryHealthCenter','deliveryHome','deliveryWay','drugScreened','drugFound','psychTotal','psychMeds','ancComplete','ancTarget','ancEarly','ancEarlyTarget','postpartumComplete','postpartumTarget','contraceptionMedical','contraceptionMedicalTarget','contraceptionPsych','contraceptionPsychTarget','pregnantCarryThai','pregnantCarryForeign','pregnantTargetThai','pregnantTargetForeign','diabetesPregnant','ancComplete8','deliveryRoomSopMoei','deliveryRoomTak','deliveryRoomChiangMai','deliveryRoomForeign','postpartumRoomSopMoei','postpartumRoomTak','postpartumRoomChiangMai','postpartumRoomForeign','deliveryForeign','riskLevel1Foreign','riskLevel2Foreign','riskLevel3Foreign','drugScreenedForeign','drugFoundForeign','psychTotalForeign','psychMedsForeign','deliveryHealthCenterLocal','deliveryHealthCenterTak','deliveryHealthCenterChiangMai','anc8Target'];
+const FIELD_MAP = {
+  hospitalId:['สถานบริการ','หน่วยบริการ','hospitalId','hospital'], month:['ประจำเดือน','เดือน','month'], pregnantCarry:['หญิงตั้งครรภ์ยอดยกมา','ยอดยกมา','pregnantCarry'], riskLevel0:['ครรภ์ปกติ(R0)','riskLevel0'], riskLevel1:['เสี่ยงต่ำ(R1)','riskLevel1'], riskLevel2:['เสี่ยงสูง(R2)','riskLevel2'], riskLevel3:['อันตราย(R3)','riskLevel3'], deliveryHospital:['คลอดที่รพ.','คลอด รพ.','คลอดใน รพ.','deliveryHospital'], deliveryHealthCenter:['คลอดที่รพ.สต.','deliveryHealthCenter'], deliveryHome:['คลอดที่บ้าน','คลอดบ้าน/รพ.สต.','deliveryHome'], deliveryWay:['คลอดระหว่างทาง','deliveryWay'], drugScreened:['คัดกรองสารเสพติด','drugScreened'], drugFound:['พบสารเสพติด','drugFound'], psychTotal:['หญิงตั้งครรภ์จิตเวช','psychTotal'], psychMeds:['รับยาต่อเนื่อง','psychMeds'],
+  pregnantForeign:['หญิงตั้งครรภ์ต่างชาติ','pregnantForeign'],
+  ancComplete:['ฝากครรภ์ครบตามเกณฑ์','ancComplete'], ancTarget:['เป้าหมายฝากครรภ์','ancTarget'],
+  ancEarly:['ฝากครรภ์ก่อน 12 สัปดาห์','ancEarly'], ancEarlyTarget:['เป้าหมายฝากครรภ์คนไทย','ancEarlyTarget'],
+  postpartumComplete:['ตรวจหลังคลอดครบ','postpartumComplete'], postpartumTarget:['เป้าหมายหลังคลอด','postpartumTarget'],
+  contraceptionMedical:['คุมกำเนิดโรคอายุรกรรม','contraceptionMedical'], contraceptionMedicalTarget:['เป้าหมายหญิงโรคอายุรกรรม','contraceptionMedicalTarget'],
+  contraceptionPsych:['คุมกำเนิดจิตเวช','contraceptionPsych'], contraceptionPsychTarget:['เป้าหมายหญิงจิตเวช','contraceptionPsychTarget'],
+  pregnantCarryThai:['ยอดยกมาคนไทย','pregnantCarryThai'],
+  pregnantCarryForeign:['ยอดยกมาต่างชาติ','pregnantCarryForeign'],
+  pregnantTargetThai:['เป้าหมายหญิงตั้งครรภ์ไทย','pregnantTargetThai'],
+  pregnantTargetForeign:['เป้าหมายหญิงตั้งครรภ์ต่างชาติ','pregnantTargetForeign'],
+  diabetesPregnant:['เบาหวานขณะตั้งครรภ์','diabetesPregnant'],
+  ancComplete8:['ฝากครรภ์ครบ 8 ครั้ง','ancComplete8'], anc8Target:['กลุ่มเป้าหมาย ANC 8 ครั้ง','เป้าหมาย ANC 8 ครั้ง','anc8Target'],
+  deliveryRoomSopMoei:['ห้องคลอดสบเมย','deliveryRoomSopMoei'],
+  deliveryRoomTak:['ห้องคลอดตาก','deliveryRoomTak'],
+  deliveryRoomChiangMai:['ห้องคลอดเชียงใหม่','deliveryRoomChiangMai'],
+  deliveryRoomForeign:['ห้องคลอดต่างชาติ','deliveryRoomForeign'],
+  postpartumRoomSopMoei:['หลังคลอดสบเมย','postpartumRoomSopMoei'],
+  postpartumRoomTak:['หลังคลอดตาก','postpartumRoomTak'],
+  postpartumRoomChiangMai:['หลังคลอดเชียงใหม่','postpartumRoomChiangMai'],
+  postpartumRoomForeign:['หลังคลอดต่างชาติ','postpartumRoomForeign'],
+  deliveryForeign:['คลอดต่างชาติ','deliveryForeign'],
+  riskLevel1Foreign:['R1 ต่างชาติ','riskLevel1Foreign'],
+  riskLevel2Foreign:['R2 ต่างชาติ','riskLevel2Foreign'],
+  riskLevel3Foreign:['R3 ต่างชาติ','riskLevel3Foreign'],
+  drugScreenedForeign:['คัดกรองสารเสพติดต่างชาติ','drugScreenedForeign'],
+  drugFoundForeign:['พบสารเสพติดต่างชาติ','drugFoundForeign'],
+  psychTotalForeign:['จิตเวชต่างชาติ','psychTotalForeign'],
+  psychMedsForeign:['รับยาต่อเนื่องต่างชาติ','psychMedsForeign'],
+  deliveryHealthCenterLocal:['คลอดรพ.สต.ในเขต','deliveryHealthCenterLocal'],
+  deliveryHealthCenterTak:['คลอดรพ.สต.นอกเขตตาก','deliveryHealthCenterTak'],
+  deliveryHealthCenterChiangMai:['คลอดรพ.สต.นอกเขตเชียงใหม่','deliveryHealthCenterChiangMai']
+};
+function $(id){ return document.getElementById(id); }
+// GitHub Pages -> Google Apps Script Web App API
+// ใส่ URL ที่ลงท้ายด้วย /exec หลัง Deploy Apps Script เป็น Web app
+const GAS_WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbyoKTudvD3zo8rK7W8jLdSB9ms_LvYi17MHPHLpz4kmKP0wzkLlL6jPSjxgtJEWZryE/exec';
+
+async function run(fn, ...args){
+  if (!GAS_WEB_APP_URL || GAS_WEB_APP_URL.includes('PASTE_YOUR_GAS_WEB_APP')) {
+    throw new Error('ยังไม่ได้ตั้งค่า GAS_WEB_APP_URL ในไฟล์ mch/index.html');
+  }
+  const response = await fetch(GAS_WEB_APP_URL, {
+    method: 'POST',
+    redirect: 'follow',
+    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+    body: JSON.stringify({ action: fn, args })
+  });
+  if (!response.ok) throw new Error(`API HTTP ${response.status}`);
+  const payload = await response.json();
+  if (!payload || payload.ok !== true) {
+    throw new Error((payload && payload.error) || 'เกิดข้อผิดพลาดจาก Backend');
+  }
+  return payload.data;
+}
+function esc(v){ return String(v ?? '').replace(/[&<>"]/g, s => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[s])); }
+function setLoading(v){ state.loading=v; render(); }
+
+async function init(){
+  $('app').innerHTML = '<div class="min-h-screen flex items-center justify-center text-gray-500 font-semibold">กำลังโหลดระบบ...</div>';
+  try {
+    state.boot = await run('getBootstrapData');
+    state.user = JSON.parse(localStorage.getItem('mch_gas_user') || 'null');
+    if(state.user && !state.user.token){ localStorage.removeItem('mch_gas_user'); state.user=null; }
+    if(state.user){
+      try { await refresh(); }
+      catch(e){ localStorage.removeItem('mch_gas_user'); state.user=null; }
+    }
+    render();
+  } catch(e) {
+    $('app').innerHTML = `<div class="p-8 text-red-600 font-semibold">โหลดระบบไม่สำเร็จ: ${esc(e.message || e)}</div>`;
+  }
+}
+async function refresh(){
+  state.records = await run('listRecords', state.user);
+  if(state.user.role === 'admin') state.users = await run('listUsers', state.user);
+  else state.filterHospital = state.user.hospital;
+}
+
+function render(){
+  if(!state.boot){ $('app').innerHTML = '<div class="min-h-screen flex items-center justify-center">กำลังโหลด...</div>'; return; }
+  if(!state.user){ renderAuth(); return; }
+  $('app').innerHTML = `
+    <div class="flex min-h-screen">
+      <aside class="w-64 bg-gradient-to-b from-emerald-700 via-teal-700 to-sky-800 text-white flex flex-col shadow-xl">
+        <div class="p-5 border-b border-white/15"><h1 class="text-lg font-bold">MCH Sop Moei <span class="text-xs opacity-80">Secure V1.4.3b</span></h1><p class="text-sm text-emerald-50">${esc(state.user.name)}</p><p class="text-xs text-emerald-100">${esc(state.user.hospital)}</p></div>
+        <nav class="p-4 space-y-2">
+          ${navBtn('dashboard','แดชบอร์ด')}${state.user.role!=='viewer'?navBtn('entry','บันทึกข้อมูล'):''}${state.user.role==='admin'?navBtn('users','ผู้ใช้งาน'):''}
+        </nav>
+        <div class="m-4 mt-auto space-y-2">
+          <button onclick="openChangePassword()" class="w-full text-left btn hover:bg-white/10">🔑 เปลี่ยนรหัสผ่าน</button>
+          <button onclick="logout()" class="w-full text-left btn hover:bg-white/10">ออกจากระบบ</button>
+        </div>
+      </aside>
+      <div class="flex-1 flex flex-col min-h-screen">
+        <header class="sticky top-0 z-20 bg-white/95 backdrop-blur-sm border-b border-gray-100 shadow-sm">
+          <div class="flex items-center justify-between px-6 py-3">
+            <span class="text-sm font-semibold text-gray-400">${state.tab==='dashboard'?'แดชบอร์ด':state.tab==='entry'?'บันทึกข้อมูล':'ผู้ใช้งาน'}</span>
+            <div class="flex items-center gap-2">
+              <input id="fileImport" type="file" accept=".xlsx,.xls,.csv" class="hidden" onchange="importFile(event)">
+              <button onclick="showAiAnalysis()" class="topbar-btn bg-violet-100 text-violet-700 border border-violet-200">✨ AI วิเคราะห์</button>
+              ${state.user.role==='admin'?`<div class="w-px h-5 bg-gray-200 mx-1"></div>
+              <button onclick="$('fileImport').click()" class="topbar-btn bg-emerald-50 text-emerald-700 border border-emerald-200">📥 นำเข้า</button>
+              <button onclick="exportExcelSecure()" class="topbar-btn bg-sky-50 text-sky-700 border border-sky-200">📤 ส่งออก</button>`:''}
+            </div>
+          </div>
+        </header>
+        <main class="flex-1 p-6 overflow-auto">${mainContent()}</main>
+      </div>
+    </div>`;
+  if (state.tab === 'dashboard') setTimeout(renderCharts, 0);
+}
+function navBtn(tab,label){ return `<button onclick="goTab('${tab}')" class="w-full text-left btn ${state.tab===tab?'bg-white/20 shadow text-white':'hover:bg-white/10'}">${label}</button>`; }
+function goTab(tab){ state.tab=tab; state.editing=null; render(); }
+function mainContent(){
+  if(state.loading) return '<div class="text-gray-500 font-semibold">กำลังดำเนินการ...</div>';
+  if(state.tab==='entry') return state.user.role==='viewer' ? dashboard() : entryForm(state.editing);
+  if(state.tab==='users') return usersView();
+  return dashboard();
+}
+
+function renderAuth(){
+  const hs = state.boot.hospitals.map(h=>`<option>${esc(h)}</option>`).join('');
+  $('app').innerHTML = `<div class="min-h-screen flex items-center justify-center p-4 bg-gradient-to-br from-emerald-50 via-sky-50 to-rose-50">
+<div class="card w-full max-w-5xl overflow-hidden grid lg:grid-cols-2">
+      <section class="relative p-8 lg:p-10 bg-gradient-to-br from-emerald-100 via-sky-100 to-rose-100 flex flex-col justify-between min-h-[560px]">
+        <div>
+          <p class="inline-flex px-3 py-1 rounded-full bg-white/70 text-emerald-800 text-sm font-bold border border-white">MCH Sop Moei</p>
+          <h1 class="mt-5 text-3xl font-bold text-gray-900 leading-tight">ระบบงานอนามัยแม่และเด็ก</h1>
+          <p class="mt-2 text-gray-600 font-medium">สำนักงานสาธารณสุขอำเภอสบเมย</p>
+        </div>
+        <div class="my-8">
+          <svg viewBox="0 0 560 380" class="w-full max-w-md mx-auto drop-shadow-sm" role="img" aria-label="ภาพประกอบแม่และเด็ก">
+            <defs>
+              <linearGradient id="softBg" x1="0" x2="1"><stop offset="0" stop-color="#bbf7d0"/><stop offset="1" stop-color="#bfdbfe"/></linearGradient>
+              <linearGradient id="dress" x1="0" x2="1"><stop offset="0" stop-color="#86efac"/><stop offset="1" stop-color="#67e8f9"/></linearGradient>
+            </defs>
+            <rect x="28" y="34" width="504" height="300" rx="42" fill="url(#softBg)" opacity="0.65"/>
+            <circle cx="438" cy="86" r="44" fill="#fde68a" opacity="0.9"/>
+            <circle cx="102" cy="102" r="28" fill="#fecdd3" opacity="0.8"/>
+            <circle cx="468" cy="282" r="24" fill="#ddd6fe" opacity="0.9"/>
+            <path d="M132 286 C150 204 194 158 256 156 C320 154 365 206 382 286 Z" fill="url(#dress)"/>
+            <circle cx="255" cy="111" r="48" fill="#f8c7a6"/>
+            <path d="M207 112 C208 61 248 44 285 64 C312 79 319 108 312 138 C284 116 247 113 207 112 Z" fill="#4b5563"/>
+            <path d="M197 192 C154 202 125 229 105 268" stroke="#34d399" stroke-width="22" stroke-linecap="round" fill="none"/>
+            <path d="M318 194 C363 206 397 232 420 268" stroke="#60a5fa" stroke-width="22" stroke-linecap="round" fill="none"/>
+            <ellipse cx="286" cy="238" rx="62" ry="72" fill="#fff7ed"/>
+            <circle cx="286" cy="222" r="27" fill="#f8c7a6"/>
+            <path d="M250 252 C268 282 304 282 322 252" fill="#bfdbfe"/>
+            <path d="M88 304 H472" stroke="#ffffff" stroke-width="18" stroke-linecap="round" opacity="0.8"/>
+            <path d="M426 158 l16 16 32 -38" stroke="#059669" stroke-width="14" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+          </svg>
+        </div>
+        <div class="grid grid-cols-3 gap-3 text-center">
+          <div class="rounded-2xl bg-white/70 p-3 border border-white"><p class="text-lg font-bold text-emerald-700">ANC</p><p class="text-xs text-gray-500">ติดตามครรภ์</p></div>
+          <div class="rounded-2xl bg-white/70 p-3 border border-white"><p class="text-lg font-bold text-sky-700">R2/R3</p><p class="text-xs text-gray-500">เฝ้าระวัง</p></div>
+          <div class="rounded-2xl bg-white/70 p-3 border border-white"><p class="text-lg font-bold text-rose-700">MCH</p><p class="text-xs text-gray-500">แม่และเด็ก</p></div>
+        </div>
+      </section>
+      <section class="p-7 lg:p-9 flex items-center">
+        <div class="w-full max-w-md mx-auto space-y-4">
+          <div><h2 class="text-2xl font-bold text-gray-900">เข้าสู่ระบบ</h2><p class="text-sm text-gray-500 mt-1">บันทึกและติดตามข้อมูลงานอนามัยแม่และเด็ก</p></div>
+          <div class="grid grid-cols-2 border rounded-xl overflow-hidden bg-gray-50"><button id="loginTab" class="py-2 bg-emerald-600 text-white font-bold" onclick="authMode('login')">เข้าสู่ระบบ</button><button id="regTab" class="py-2 font-bold text-gray-600" onclick="authMode('register')">ลงทะเบียน</button></div>
+          <div id="authError" class="hidden bg-red-50 text-red-600 p-3 rounded-lg text-sm"></div>
+          <form id="authForm" class="space-y-3" onsubmit="submitAuth(event)">
+            <div id="nameWrap" class="hidden"><input class="input" name="name" placeholder="ชื่อ-สกุล"></div>
+            <input class="input" name="username" placeholder="ชื่อผู้ใช้" required>
+            <input class="input" name="password" type="password" placeholder="รหัสผ่าน" required>
+            <div id="hospitalWrap" class="hidden"><select class="input" name="hospital">${hs}</select></div>
+            <button class="btn bg-emerald-600 hover:bg-emerald-700 text-white w-full" id="authSubmit">เข้าสู่ระบบ</button>
+            <p class="text-center text-sm font-bold text-gray-800 pt-2">Copyright by Jakkrapong Srimuang</p>
+          </form>
+        </div>
+      </section>
+    </div>
+  </div>`;
+  window.currentAuthMode='login';
+}
+function authMode(mode){
+  window.currentAuthMode=mode; $('nameWrap').classList.toggle('hidden', mode==='login'); $('hospitalWrap').classList.toggle('hidden', mode==='login');
+  $('loginTab').className = mode==='login'?'py-2 bg-emerald-600 text-white font-bold':'py-2 font-bold';
+  $('regTab').className = mode==='register'?'py-2 bg-emerald-600 text-white font-bold':'py-2 font-bold';
+  $('authSubmit').textContent = mode==='login'?'เข้าสู่ระบบ':'ลงทะเบียนและเข้าใช้งาน';
+}
+async function submitAuth(e){
+  e.preventDefault(); const f=Object.fromEntries(new FormData(e.target).entries()); $('authError').className='hidden bg-red-50 text-red-600 p-3 rounded-lg text-sm';
+  try {
+    if(window.currentAuthMode==='register'){
+      const result = await run('registerUser', f);
+      $('authError').className='bg-emerald-50 text-emerald-700 p-3 rounded-lg text-sm';
+      $('authError').textContent = result.message || 'ลงทะเบียนสำเร็จ กรุณารอผู้ดูแลระบบอนุมัติบัญชีก่อนเข้าใช้งาน';
+      authMode('login');
+      return;
+    } else {
+      state.user = await run('loginUser', f);
+    }
+    localStorage.setItem('mch_gas_user', JSON.stringify(state.user)); await refresh(); render();
+  }
+  catch(err){ $('authError').className='bg-red-50 text-red-600 p-3 rounded-lg text-sm'; $('authError').textContent = err.message || err; }
+}
+async function logout(){
+  const old=state.user;
+  localStorage.removeItem('mch_gas_user'); state.user=null; state.records=[]; render();
+  try { if(old) await run('logoutUser', old); } catch(e){}
+}
+
+function fiscalYear(monthText){ const p=String(monthText||'').split('-'); const y=Number(p[0]||0); const m=Number(p[1]||1); return m>=10 ? y+1 : y; }
+function fiscalMonthOrder(monthText){ const p=String(monthText||'').split('-'); const m=Number(p[1]||1); return m>=10 ? m-10 : m+2; }
+function fiscalMonthLabel(monthText){ const names=['ต.ค.','พ.ย.','ธ.ค.','ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.']; return names[fiscalMonthOrder(monthText)] || monthText; }
+function fiscalYearOptions(){ const current=fiscalYear(new Date().toISOString().slice(0,7)); const set=new Set(); for(let y=2024;y<=current+5;y++) set.add(y); state.records.map(r=>fiscalYear(r.month)).filter(Boolean).filter(y=>y>=2024).forEach(y=>set.add(y)); return [...set].sort((a,b)=>b-a); }
+function ensureFiscalYear(){ if(!state.filterFiscalYear){ state.filterFiscalYear=String(fiscalYear(new Date().toISOString().slice(0,7))); } }
+function fiscalYearSelect(){ ensureFiscalYear(); return `<select class="input max-w-xs" onchange="state.filterFiscalYear=this.value;render()">${fiscalYearOptions().map(y=>`<option value="${y}" ${String(state.filterFiscalYear)===String(y)?'selected':''}>ปีงบประมาณ ${Number(y)+543}</option>`).join('')}</select>`; }
+function filteredRecords(){ ensureFiscalYear(); return state.records.filter(r => (state.filterHospital==='All'||r.hospitalId===state.filterHospital) && String(fiscalYear(r.month))===String(state.filterFiscalYear)); }
+function pregnancySummary(records){
+  // หลักการ: หญิงตั้งครรภ์สะสม = ยอดเก่ายกมาต้นปีงบประมาณ (นับครั้งเดียว/สถานบริการ) + รายใหม่สะสม R0+R1+R2+R3
+  const firstByHospital = {};
+  let newPregnant = 0;
+
+  [...records].sort((a,b)=>fiscalMonthOrder(a.month)-fiscalMonthOrder(b.month)).forEach(r=>{
+    const h = r.hospitalId || 'ไม่ระบุ';
+    if(!firstByHospital[h]){
+      firstByHospital[h] = {
+        carry:num(r.pregnantCarry),
+        carryThai:num(r.pregnantCarryThai),
+        carryForeign:num(r.pregnantCarryForeign)
+      };
+    }
+    newPregnant += num(r.riskLevel0)+num(r.riskLevel1)+num(r.riskLevel2)+num(r.riskLevel3);
+  });
+
+  const carry = Object.values(firstByHospital).reduce((sum,x)=>sum+num(x.carry),0);
+  const carryThai = Object.values(firstByHospital).reduce((sum,x)=>sum+num(x.carryThai),0);
+  const carryForeign = Object.values(firstByHospital).reduce((sum,x)=>sum+num(x.carryForeign),0);
+  return {carry, carryThai, carryForeign, newPregnant, total:carry+newPregnant};
+}
+
+function pregnancyMonthlyCumulative(records){
+  const summary = pregnancySummary(records);
+  const byMonth = {};
+  records.forEach(r=>{
+    const m = r.month || 'ไม่ระบุ';
+    byMonth[m] = (byMonth[m]||0) + num(r.riskLevel0)+num(r.riskLevel1)+num(r.riskLevel2)+num(r.riskLevel3);
+  });
+  const months = Object.keys(byMonth).sort((a,b)=>fiscalMonthOrder(a)-fiscalMonthOrder(b));
+  let running = summary.carry;
+  const cumulative = {};
+  months.forEach(m=>{
+    running += byMonth[m];
+    cumulative[m] = running;
+  });
+  return cumulative;
+}
+function dashboard(){
+  const records=filteredRecords();
+  const s=records.reduce((a,r)=>{a.carry+=num(r.pregnantCarry);a.total+=num(r.pregnantCarry)+num(r.riskLevel0)+num(r.riskLevel1)+num(r.riskLevel2)+num(r.riskLevel3);a.r1+=num(r.riskLevel1);a.r2+=num(r.riskLevel2);a.r3+=num(r.riskLevel3);a.risk+=num(r.riskLevel2)+num(r.riskLevel3);a.foreign+=num(r.pregnantForeign);a.delHosp+=num(r.deliveryHospital);a.delHC+=num(r.deliveryHealthCenter);a.delHome+=num(r.deliveryHome);a.delWay+=num(r.deliveryWay);a.delivery+=num(r.deliveryHospital)+num(r.deliveryHealthCenter)+num(r.deliveryHome)+num(r.deliveryWay);a.home+=num(r.deliveryHealthCenter)+num(r.deliveryHome)+num(r.deliveryWay);a.drugScreened+=num(r.drugScreened);a.drug+=num(r.drugFound);a.psych+=num(r.psychTotal);a.psychMeds+=num(r.psychMeds);a.ancComplete+=num(r.ancComplete);a.ancTarget+=num(r.ancTarget);a.ancEarly+=num(r.ancEarly);a.ancEarlyTarget+=num(r.ancEarlyTarget);a.postpartumComplete+=num(r.postpartumComplete);a.postpartumTarget+=num(r.postpartumTarget);a.conMed+=num(r.contraceptionMedical);a.conMedT+=num(r.contraceptionMedicalTarget);a.conPsych+=num(r.contraceptionPsych);a.conPsychT+=num(r.contraceptionPsychTarget);a.carryThai+=num(r.pregnantCarryThai);a.carryForeign+=num(r.pregnantCarryForeign);a.targetThai+=num(r.pregnantTargetThai);a.targetForeign+=num(r.pregnantTargetForeign);a.diabetes+=num(r.diabetesPregnant);a.anc8+=num(r.ancComplete8);a.anc8Target+=num(r.anc8Target);a.drSopMoei+=num(r.deliveryRoomSopMoei);a.drTak+=num(r.deliveryRoomTak);a.drCM+=num(r.deliveryRoomChiangMai);a.drForeign+=num(r.deliveryRoomForeign);a.ppSopMoei+=num(r.postpartumRoomSopMoei);a.ppTak+=num(r.postpartumRoomTak);a.ppCM+=num(r.postpartumRoomChiangMai);a.ppForeign+=num(r.postpartumRoomForeign);a.delForeign+=num(r.deliveryForeign);a.r1Foreign+=num(r.riskLevel1Foreign);a.r2Foreign+=num(r.riskLevel2Foreign);a.r3Foreign+=num(r.riskLevel3Foreign);a.drugScreenedForeign+=num(r.drugScreenedForeign);a.drugFoundForeign+=num(r.drugFoundForeign);a.psychTotalForeign+=num(r.psychTotalForeign);a.psychMedsForeign+=num(r.psychMedsForeign);a.hcLocal+=num(r.deliveryHealthCenterLocal);a.hcTak+=num(r.deliveryHealthCenterTak);a.hcCM+=num(r.deliveryHealthCenterChiangMai);return a;},{carry:0,total:0,r1:0,r2:0,r3:0,risk:0,foreign:0,delHosp:0,delHC:0,delHome:0,delWay:0,delivery:0,home:0,drugScreened:0,drug:0,psych:0,psychMeds:0,ancComplete:0,ancTarget:0,ancEarly:0,ancEarlyTarget:0,postpartumComplete:0,postpartumTarget:0,conMed:0,conMedT:0,conPsych:0,conPsychT:0,carryThai:0,carryForeign:0,targetThai:0,targetForeign:0,diabetes:0,anc8:0,anc8Target:0,ancLegacyTarget:0,drSopMoei:0,drTak:0,drCM:0,drForeign:0,ppSopMoei:0,ppTak:0,ppCM:0,ppForeign:0,delForeign:0,r1Foreign:0,r2Foreign:0,r3Foreign:0,drugScreenedForeign:0,drugFoundForeign:0,psychTotalForeign:0,psychMedsForeign:0,hcLocal:0,hcTak:0,hcCM:0});
+  const preg = pregnancySummary(records);
+  s.carry = preg.carry;
+  s.carryThai = preg.carryThai;
+  s.carryForeign = preg.carryForeign;
+  s.newPregnant = preg.newPregnant;
+  s.total = preg.total;
+  const hospitalFilter = state.user.role==='admin' ? `<select class="input max-w-xs" onchange="state.filterHospital=this.value;render()"><option value="All">ทุกสถานบริการ</option>${state.boot.hospitals.filter(h=>h!=='สสอ.สบเมย').map(h=>`<option ${state.filterHospital===h?'selected':''}>${esc(h)}</option>`).join('')}</select>` : '';
+  return `<div class="space-y-6">
+    <section class="card p-6 bg-gradient-to-r from-emerald-50 via-sky-50 to-rose-50">
+      <div class="flex justify-between gap-4 flex-wrap items-center">
+        <div><p class="text-sm font-semibold text-emerald-700">สำนักงานสาธารณสุขอำเภอสบเมย</p><h2 class="text-2xl font-bold text-gray-800 mt-1">ภาพรวมอนามัยแม่และเด็ก</h2><p class="text-sm text-gray-500 mt-1">สรุปสถานการณ์รายเดือน พร้อมกราฟติดตามงานในพื้นที่</p></div>
+      </div>
+      <div class="mt-5 flex gap-3 flex-wrap">${hospitalFilter}${fiscalYearSelect()}<button class="btn border bg-white" onclick="state.filterHospital='All';state.filterFiscalYear='';render()">ล้างตัวกรอง</button></div>
+    </section>
+    <section id="aiPanel" class="hidden card p-5 border-violet-100 bg-gradient-to-r from-violet-50 via-white to-sky-50"></section>
+    <section class="grid md:grid-cols-2 xl:grid-cols-4 gap-4">
+      ${stat('ยอดยกมา',s.carry,'#fff4cc','#b45309','นับครั้งเดียว ณ ต้นปีงบ')}
+      ${stat('รายใหม่สะสม',s.newPregnant,'#e0f2fe','#0369a1','R0 + R1 + R2 + R3')}
+      ${stat('หญิงตั้งครรภ์สะสม',s.total,'#dff7ec','#047857','ยอดยกมา + รายใหม่')}
+      ${stat('ต่างชาติ',s.foreign,'#fef3c7','#92400e','หญิงตั้งครรภ์')}
+      ${splitStat('ยอดคลอด',Math.max(0,s.delivery-s.delForeign),'🇹🇭 ไทย','#1d4ed8',s.delForeign,'🌏 ต่างชาติ','#92400e','#dceeff')}
+      ${stat('R1 เสี่ยงต่ำ',s.r1,'#ecfdf5','#065f46','ติดตาม')}
+      ${stat('R2 เสี่ยงสูง',s.r2,'#ffe4e9','#be123c','แยกติดตาม')}
+      ${stat('R3 อันตราย',s.r3,'#eee7ff','#6d28d9','เร่งติดตาม')}
+      ${stat('จิตเวช',s.psych,'#fdf4ff','#7e22ce','ดูแลต่อเนื่อง')}
+    </section>
+    <section class="grid md:grid-cols-3 gap-4">
+      ${thaiVsForeignSection(s)}
+      ${diabetesCard(s.diabetes)}
+    </section>
+    <section class="grid md:grid-cols-3 xl:grid-cols-5 gap-4">
+      ${qualityCard('ฝากครรภ์ครบ 8 ครั้ง',s.anc8,s.anc8Target,80,'✅')}
+      ${qualityCard('ฝากครรภ์ก่อน 12 สัปดาห์ (คนไทย)',s.ancEarly,s.ancEarlyTarget,80,'🇹🇭')}
+      ${qualityCard('ตรวจหลังคลอดครบ 3 ครั้ง',s.postpartumComplete,s.postpartumTarget,80,'👶')}
+      ${qualityCard('คุมกำเนิด หญิงโรคอายุรกรรม',s.conMed,s.conMedT,80,'💊')}
+      ${qualityCard('คุมกำเนิด หญิงจิตเวช',s.conPsych,s.conPsychT,80,'🧠')}
+    </section>
+    ${monthlyQualitySection(records,s.total)}
+    <section class="grid md:grid-cols-3 gap-4">
+      ${deliverySection(s.delHosp,s.delHC,s.delHome,s.delWay)}
+      ${screeningCardSplit('การคัดกรองสารเสพติด','#be123c','#f43f5e',[['คัดกรองทั้งหมด',Math.max(0,s.drugScreened-s.drugScreenedForeign),s.drugScreenedForeign],['พบสารเสพติด',Math.max(0,s.drug-s.drugFoundForeign),s.drugFoundForeign]])}
+      ${screeningCardSplit('การคัดกรองจิตเวช','#7c3aed','#8b5cf6',[['หญิงตั้งครรภ์จิตเวช',Math.max(0,s.psych-s.psychTotalForeign),s.psychTotalForeign],['รับยาต่อเนื่อง',Math.max(0,s.psychMeds-s.psychMedsForeign),s.psychMedsForeign]])}
+    </section>
+    ${hospitalServiceSection(s)}
+    ${monthlyHealthCenterSection(records)}
+    <section class="grid xl:grid-cols-3 gap-4">
+      <div class="card p-5 xl:col-span-2"><div class="flex justify-between items-center mb-3"><h3 class="font-bold text-gray-800">แนวโน้มตามเดือน</h3><span class="text-xs text-gray-500">หญิงตั้งครรภ์สะสม / R1 / R2 / R3 / คลอดรวม</span></div><div class="chart-box"><canvas id="monthTrendChart"></canvas></div></div>
+      <div class="card p-5"><h3 class="font-bold text-gray-800 mb-3">สัดส่วน R2/R3</h3><div class="chart-box"><canvas id="riskDonutChart"></canvas></div></div>
+      <div class="card p-5 xl:col-span-2"><h3 class="font-bold text-gray-800 mb-3">เปรียบเทียบตามสถานบริการ</h3><div class="chart-box"><canvas id="hospitalChart"></canvas></div></div>
+      <div class="card p-5"><h3 class="font-bold text-gray-800 mb-3">ประเด็นเฝ้าระวัง</h3><div class="space-y-3">${watchItem('คลอดนอก รพ.',s.home,'bg-amber-100 text-amber-700')}${watchItem('พบสารเสพติด',s.drug,'bg-rose-100 text-rose-700')}${watchItem('R2 เสี่ยงสูง',s.r2,'bg-purple-100 text-purple-700')}${watchItem('R3 อันตราย',s.r3,'bg-indigo-100 text-indigo-700')}</div></div>
+    </section>
+    <section class="card overflow-auto"><div class="p-4 border-b bg-white/70"><h3 class="font-bold text-gray-800">รายละเอียดข้อมูล</h3></div><table class="w-full text-sm soft-table"><thead class="bg-slate-50"><tr><th class="p-3 text-left">สถานบริการ</th><th class="p-3">เดือน</th><th class="p-3">ยอดยกมา</th><th class="p-3">R2</th><th class="p-3">R3</th><th class="p-3">คลอดนอก รพ.</th><th class="p-3">สารเสพติด</th><th class="p-3">จัดการ</th></tr></thead><tbody>${records.length?records.map(row).join(''):'<tr><td colspan="8" class="p-8 text-center text-gray-500">ยังไม่มีข้อมูล</td></tr>'}</tbody></table></section>
+  </div>`;
+}
+function stat(label,value,bg,color,sub){ return `<div class="metric" style="background:${bg}"><p class="text-sm font-semibold" style="color:${color}">${label}</p><p class="text-4xl font-bold mt-2" style="color:${color}">${value}</p><p class="text-xs text-gray-500 mt-2">${sub}</p></div>`; }
+function splitStat(label,v1,l1,c1,v2,l2,c2,bg){ return `<div class="metric" style="background:${bg}"><p class="text-sm font-semibold text-gray-700">${label}</p><div class="grid grid-cols-2 gap-2 mt-2"><div><p class="text-xs font-semibold" style="color:${c1}">${l1}</p><p class="text-3xl font-bold" style="color:${c1}">${v1}</p></div><div><p class="text-xs font-semibold" style="color:${c2}">${l2}</p><p class="text-3xl font-bold" style="color:${c2}">${v2}</p></div></div></div>`; }
+function watchItem(label,value,cls){ return `<div class="flex items-center justify-between rounded-xl px-4 py-3 ${cls}"><span class="font-semibold">${label}</span><span class="text-2xl font-bold">${value}</span></div>`; }
+function pct(n,d){ return d ? Math.round(n/d*1000)/10 : 0; }
+function rateColor(v,t){ return v>=t?'#059669':v>=t*0.8?'#d97706':'#dc2626'; }
+function qualityCard(label,done,total,target,icon){
+  const n=num(done), d=num(total), goal=num(target);
+  if(d<=0){
+    return `<div class="quality-card"><div class="font-semibold">${icon} ${label}</div><div class="text-2xl font-bold text-amber-600 mt-2">—</div><div class="text-xs text-amber-700 mt-1">ยังไม่มีฐานประเมิน</div></div>`;
+  }
+  const rate=pct(n,d);
+  const invalid = n>d || rate>100;
+  const ok = !invalid && rate>=goal;
+  const near = !invalid && !ok && rate>=Math.max(0,goal-10);
+  const cls = invalid?'text-amber-600':(ok?'text-emerald-600':(near?'text-amber-600':'text-red-600'));
+  const status = invalid?'⚠️ ตรวจสอบข้อมูล':(ok?'ผ่านเกณฑ์':(near?'ใกล้เกณฑ์':'ต่ำกว่าเกณฑ์'));
+  return `<div class="quality-card"><div class="font-semibold">${icon} ${label}</div><div class="text-2xl font-bold ${cls} mt-2">${rate}%</div><div class="text-xs text-gray-400">${n}/${d} ราย</div><div class="text-xs mt-2 ${cls}">${status}</div></div>`;
+}
+function monthlyQualityData(records){
+  const byMonth = {};
+  records.forEach(r=>{
+    const m = r.month || 'ไม่ระบุ';
+    const b = byMonth[m] = byMonth[m] || {
+      anc8:0,anc8Target:0,
+      ancEarly:0,ancEarlyTarget:0,
+      pp:0,ppTarget:0,
+      conMed:0,conMedTarget:0,
+      conPsych:0,conPsychTarget:0
+    };
+    b.anc8+=num(r.ancComplete8);
+    b.anc8Target+=num(r.anc8Target);
+    b.ancLegacyTarget+=num(r.ancTarget);
+    b.ancEarly+=num(r.ancEarly);
+    b.ancEarlyTarget+=num(r.ancEarlyTarget);
+    b.pp+=num(r.postpartumComplete);
+    b.ppTarget+=num(r.postpartumTarget);
+    b.conMed+=num(r.contraceptionMedical);
+    b.conMedTarget+=num(r.contraceptionMedicalTarget);
+    b.conPsych+=num(r.contraceptionPsych);
+    b.conPsychTarget+=num(r.contraceptionPsychTarget);
+  });
+  return Object.keys(byMonth).sort((a,b)=>fiscalMonthOrder(a)-fiscalMonthOrder(b)).map(m=>({label:fiscalMonthLabel(m),...byMonth[m]}));
+}
+function monthlyQualityCell(done,total){
+  const r=pct(done,total); const c=rateColor(r,80);
+  return `<td class="p-2 text-center"><span class="font-bold" style="color:${c}">${r}%</span><br><span class="text-xs text-gray-400">${done}/${total}</span></td>`;
+}
+function monthlyQualitySection(records,totalPregnant){
+  const rows = monthlyQualityData(records);
+  if(!rows.length) return '';
+  const body = rows.map(r=>`<tr class="border-t">
+    <td class="p-2 font-medium text-left">${esc(r.label)}</td>
+    ${monthlyQualityCell(r.anc8,r.anc8Target)}
+    ${monthlyQualityCell(r.ancEarly,r.ancEarlyTarget)}
+    ${monthlyQualityCell(r.pp,r.ppTarget)}
+    ${monthlyQualityCell(r.conMed,r.conMedTarget)}
+    ${monthlyQualityCell(r.conPsych,r.conPsychTarget)}
+  </tr>`).join('');
+  return `<section class="card overflow-auto">
+    <div class="p-4 border-b bg-white/70"><h3 class="font-bold text-gray-800">ผลงานรายเดือน (ตัวชี้วัดคุณภาพ)</h3></div>
+    <table class="w-full text-sm soft-table">
+      <thead class="bg-slate-50"><tr>
+        <th class="p-2 text-left">เดือน</th>
+        <th class="p-2">✅ ฝากครรภ์ครบ 8 ครั้ง</th>
+        <th class="p-2">🇹🇭 ฝากครรภ์ก่อน 12 สัปดาห์</th>
+        <th class="p-2">👶 หลังคลอดครบ 3 ครั้ง</th>
+        <th class="p-2">💊 คุมกำเนิด อายุรกรรม</th>
+        <th class="p-2">🧠 คุมกำเนิด จิตเวช</th>
+      </tr></thead>
+      <tbody>${body}</tbody>
+    </table>
+  </section>`;
+}
+function deliveryBar(label,value,total,color){
+  const r=pct(value,total);
+  return `<div><div class="flex justify-between text-sm mb-1"><span class="text-gray-700 font-medium">${label}</span><span class="font-bold" style="color:${color}">${value} ราย (${r}%)</span></div><div class="bg-gray-100 rounded-full h-2"><div style="width:${Math.min(r,100)}%;background:${color}" class="h-2 rounded-full"></div></div></div>`;
+}
+function deliverySection(hosp,hc,home,way){
+  const total=hosp+hc+home+way;
+  return `<div class="card p-5"><h3 class="font-bold text-gray-800 mb-4">การคลอดแยกประเภท <span class="text-sm font-normal text-gray-400">รวม ${total} ราย</span></h3><div class="space-y-4">${deliveryBar('คลอดที่รพ.',hosp,total,'#3b82f6')}${deliveryBar('คลอดที่รพ.สต.',hc,total,'#10b981')}${deliveryBar('คลอดที่บ้าน',home,total,'#f59e0b')}${deliveryBar('คลอดระหว่างทาง',way,total,'#ef4444')}</div></div>`;
+}
+function monthlyHealthCenterData(records){
+  const byMonth = {};
+  records.forEach(r=>{
+    const m = r.month || 'ไม่ระบุ';
+    const b = byMonth[m] = byMonth[m] || {local:0,tak:0,cm:0,total:0};
+    b.local+=num(r.deliveryHealthCenterLocal);
+    b.tak+=num(r.deliveryHealthCenterTak);
+    b.cm+=num(r.deliveryHealthCenterChiangMai);
+    b.total+=num(r.deliveryHealthCenter);
+  });
+  return Object.keys(byMonth).sort((a,b)=>fiscalMonthOrder(a)-fiscalMonthOrder(b)).map(m=>({label:fiscalMonthLabel(m),...byMonth[m]}));
+}
+function monthlyHealthCenterSection(records){
+  const rows = monthlyHealthCenterData(records);
+  if(!rows.length) return '';
+  const body = rows.map(r=>`<tr class="border-t">
+    <td class="p-2 font-medium text-left">${esc(r.label)}</td>
+    <td class="p-2 text-center font-semibold text-emerald-700">${r.local}</td>
+    <td class="p-2 text-center font-semibold text-purple-700">${r.tak}</td>
+    <td class="p-2 text-center font-semibold text-amber-700">${r.cm}</td>
+    <td class="p-2 text-center font-bold text-gray-700">${r.total}</td>
+  </tr>`).join('');
+  return `<section class="card overflow-auto">
+    <div class="p-4 border-b bg-white/70"><h3 class="font-bold text-gray-800">คลอดที่ รพ.สต. รายเดือน (แยกเขต)</h3></div>
+    <table class="w-full text-sm soft-table">
+      <thead class="bg-slate-50"><tr>
+        <th class="p-2 text-left">เดือน</th>
+        <th class="p-2">ในเขต</th>
+        <th class="p-2">นอกเขต (ตาก)</th>
+        <th class="p-2">นอกเขต (เชียงใหม่)</th>
+        <th class="p-2">รวมคลอด รพ.สต.</th>
+      </tr></thead>
+      <tbody>${body}</tbody>
+    </table>
+  </section>`;
+}
+function screeningCardSplit(title,color,dot,rows){
+  const header=`<div class="grid grid-cols-3 gap-2 mb-2"><span></span><span class="text-xs font-semibold text-emerald-700 text-center">🇹🇭 ไทย</span><span class="text-xs font-semibold text-amber-700 text-center">🌏 ต่างชาติ</span></div>`;
+  const body=rows.map(([l,vT,vF])=>`<div class="grid grid-cols-3 gap-2 items-center mb-2"><p class="text-xs text-gray-600 font-semibold">${l}</p><div class="rounded-xl p-2 text-center bg-emerald-50"><p class="text-2xl font-bold" style="color:${color}">${vT}</p></div><div class="rounded-xl p-2 text-center bg-amber-50"><p class="text-2xl font-bold text-amber-700">${vF}</p></div></div>`).join('');
+  return `<div class="card p-5"><div class="flex items-center gap-2 mb-3"><div class="w-3 h-3 rounded-full" style="background:${dot}"></div><h3 class="font-bold text-gray-800">${title}</h3></div>${header}${body}</div>`;
+}
+function thaiVsForeignSection(s){
+  const thaiTotal=Math.max(0,s.total-s.foreign);
+  const delThai=Math.max(0,s.delivery-s.delForeign);
+  const r1Thai=Math.max(0,s.r1-s.r1Foreign);
+  const r2Thai=Math.max(0,s.r2-s.r2Foreign);
+  const r3Thai=Math.max(0,s.r3-s.r3Foreign);
+  const mini=(l,v,c)=>`<div class="text-center"><p class="text-xs text-gray-500">${l}</p><p class="text-base font-bold" style="color:${c}">${v}</p></div>`;
+  return `<div class="card p-5 md:col-span-2"><h3 class="font-bold text-gray-800 mb-4">หญิงตั้งครรภ์แยกสัญชาติ</h3><div class="grid grid-cols-2 gap-4"><div class="bg-emerald-50 rounded-xl p-4 border border-emerald-100"><p class="text-xs font-semibold text-emerald-700 mb-1">🇹🇭 คนไทย</p><p class="text-3xl font-bold text-emerald-700">${thaiTotal}</p><div class="mt-2 space-y-1 text-xs"><div class="flex justify-between text-gray-600"><span>เป้าหมาย</span><b>${s.targetThai}</b></div><div class="flex justify-between text-gray-600"><span>ยอดยกมา</span><b>${s.carryThai}</b></div></div><div class="mt-3 grid grid-cols-4 gap-1 bg-white/70 rounded-lg p-2">${mini('คลอด',delThai,'#047857')}${mini('R1',r1Thai,'#065f46')}${mini('R2',r2Thai,'#be123c')}${mini('R3',r3Thai,'#6d28d9')}</div></div><div class="bg-amber-50 rounded-xl p-4 border border-amber-100"><p class="text-xs font-semibold text-amber-700 mb-1">🌏 ต่างชาติ</p><p class="text-3xl font-bold text-amber-700">${s.foreign}</p><div class="mt-2 space-y-1 text-xs"><div class="flex justify-between text-gray-600"><span>เป้าหมาย</span><b>${s.targetForeign}</b></div><div class="flex justify-between text-gray-600"><span>ยอดยกมา</span><b>${s.carryForeign}</b></div></div><div class="mt-3 grid grid-cols-4 gap-1 bg-white/70 rounded-lg p-2">${mini('คลอด',s.delForeign,'#92400e')}${mini('R1',s.r1Foreign,'#065f46')}${mini('R2',s.r2Foreign,'#be123c')}${mini('R3',s.r3Foreign,'#6d28d9')}</div></div></div></div>`;
+}
+function diabetesCard(n){
+  return `<div class="card p-5 flex flex-col justify-between"><div class="flex items-center gap-2 mb-3"><span class="text-2xl">🩺</span><h3 class="font-bold text-gray-800">เบาหวานขณะตั้งครรภ์</h3></div><p class="text-5xl font-bold text-rose-600 mt-2">${n}</p><p class="text-sm text-gray-500 mt-3">ราย (GDM)</p><p class="text-xs text-gray-400 mt-1">Gestational Diabetes</p></div>`;
+}
+function hospitalServiceSection(s){
+  const totalDR=s.drSopMoei+s.drTak+s.drCM+s.drForeign;
+  const totalPP=s.ppSopMoei+s.ppTak+s.ppCM+s.ppForeign;
+  if(!totalDR&&!totalPP) return '';
+  return `<section class="card p-5"><h3 class="font-bold text-gray-800 mb-4">ผู้รับบริการ รพ.สบเมย (ห้องคลอด / หลังคลอด) แยกใน-นอกเขต</h3><div class="grid md:grid-cols-2 gap-6"><div><h4 class="text-sm font-semibold text-blue-700 mb-3">🏥 ห้องคลอด รวม ${totalDR} ราย</h4><div class="space-y-3">${deliveryBar('สบเมย (ในเขต)',s.drSopMoei,totalDR,'#3b82f6')}${deliveryBar('ตาก (นอกเขต)',s.drTak,totalDR,'#8b5cf6')}${deliveryBar('เชียงใหม่ (นอกเขต)',s.drCM,totalDR,'#f59e0b')}${deliveryBar('ต่างชาติ',s.drForeign,totalDR,'#10b981')}</div></div><div><h4 class="text-sm font-semibold text-rose-700 mb-3">🛏 หลังคลอด รวม ${totalPP} ราย</h4><div class="space-y-3">${deliveryBar('สบเมย (ในเขต)',s.ppSopMoei,totalPP,'#3b82f6')}${deliveryBar('ตาก (นอกเขต)',s.ppTak,totalPP,'#8b5cf6')}${deliveryBar('เชียงใหม่ (นอกเขต)',s.ppCM,totalPP,'#f59e0b')}${deliveryBar('ต่างชาติ',s.ppForeign,totalPP,'#10b981')}</div></div></div></section>`;
+}
+function aiSummary(records){
+  const s = records.reduce((a,r)=>{a.carry+=num(r.pregnantCarry);a.total+=num(r.pregnantCarry)+num(r.riskLevel0)+num(r.riskLevel1)+num(r.riskLevel2)+num(r.riskLevel3);a.r1+=num(r.riskLevel1);a.r2+=num(r.riskLevel2);a.r3+=num(r.riskLevel3);a.foreign+=num(r.pregnantForeign);a.delivery+=num(r.deliveryHospital)+num(r.deliveryHealthCenter)+num(r.deliveryHome)+num(r.deliveryWay);a.home+=num(r.deliveryHealthCenter)+num(r.deliveryHome)+num(r.deliveryWay);a.drugScreened+=num(r.drugScreened);a.drug+=num(r.drugFound);a.psych+=num(r.psychTotal);a.psychMeds+=num(r.psychMeds);a.ancComplete+=num(r.ancComplete);a.ancTarget+=num(r.ancTarget);a.ancEarly+=num(r.ancEarly);a.ancEarlyTarget+=num(r.ancEarlyTarget);a.postpartumComplete+=num(r.postpartumComplete);a.postpartumTarget+=num(r.postpartumTarget);a.conMed+=num(r.contraceptionMedical);a.conMedT+=num(r.contraceptionMedicalTarget);a.conPsych+=num(r.contraceptionPsych);a.conPsychT+=num(r.contraceptionPsychTarget);a.diabetes+=num(r.diabetesPregnant);a.anc8+=num(r.ancComplete8);a.anc8Target+=num(r.anc8Target);return a;},{carry:0,total:0,r1:0,r2:0,r3:0,foreign:0,delivery:0,home:0,drugScreened:0,drug:0,psych:0,psychMeds:0,ancComplete:0,ancTarget:0,ancEarly:0,ancEarlyTarget:0,postpartumComplete:0,postpartumTarget:0,conMed:0,conMedT:0,conPsych:0,conPsychT:0,diabetes:0,anc8:0,anc8Target:0});
+  const preg = pregnancySummary(records);
+  s.carry = preg.carry;
+  s.newPregnant = preg.newPregnant;
+  s.total = preg.total;
+  s.risk = s.r2 + s.r3;
+  s.riskRate = pct(s.risk, s.total);
+  s.homeRate = pct(s.home, s.delivery);
+  s.drugRate = pct(s.drug, s.drugScreened);
+  s.ancRate = pct(s.ancComplete, s.ancTarget);
+  s.anc8Rate = pct(s.anc8, s.anc8Target);
+  s.ancEarlyRate = pct(s.ancEarly, s.ancEarlyTarget);
+  s.postpartumRate = pct(s.postpartumComplete, s.postpartumTarget);
+  s.conMedRate = pct(s.conMed, s.conMedT);
+  s.conPsychRate = pct(s.conPsych, s.conPsychT);
+  return s;
+}
+function aiHospitalHotspots(records){
+  const map = {};
+  records.forEach(r=>{ const h=r.hospitalId||'ไม่ระบุ'; map[h]=map[h]||{r2:0,r3:0,home:0,drug:0,psych:0}; map[h].r2+=num(r.riskLevel2); map[h].r3+=num(r.riskLevel3); map[h].home+=num(r.deliveryHealthCenter)+num(r.deliveryHome)+num(r.deliveryWay); map[h].drug+=num(r.drugFound); map[h].psych+=num(r.psychTotal); });
+  return Object.entries(map).map(([hospital,v])=>({hospital,score:v.r3*5+v.r2*3+v.home*3+v.drug*4+v.psych*2,...v})).sort((a,b)=>b.score-a.score).slice(0,3);
+}
+async function showAiAnalysis(){
+  const panel = $('aiPanel'); if(!panel) return;
+  const records = filteredRecords();
+  if(!records.length){ panel.classList.remove('hidden'); panel.innerHTML = '<h3 class="font-bold text-violet-800">AI วิเคราะห์ข้อมูล</h3><p class="mt-2 text-gray-500">ยังไม่มีข้อมูลในปีงบประมาณ/ตัวกรองที่เลือก</p>'; return; }
+  const s = aiSummary(records);
+  panel.classList.remove('hidden');
+  const hasKey = true;
+  panel.innerHTML = `<div class="flex items-center gap-3 py-4"><svg class="animate-spin w-5 h-5 text-violet-600" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path></svg><span class="text-violet-700 font-semibold">${hasKey?'Gemini AI กำลังวิเคราะห์ข้อมูล...':'กำลังวิเคราะห์ข้อมูล...'}</span></div>`;
+  panel.scrollIntoView({behavior:'smooth', block:'start'});
+  let aiText = null;
+  try {
+    aiText = await run('getAiAnalysis', state.user, buildAiPrompt(s,records.length));
+  } catch(e){ /* try direct API */ }
+
+  if(aiText){ panel.innerHTML = renderAiResponse(aiText, records.length, s); panel.scrollIntoView({behavior:'smooth',block:'start'}); return; }
+  showRuleBasedAnalysis(panel, s, records);
+}
+function buildAiPrompt(s, count){
+  return `คุณเป็นที่ปรึกษาด้านอนามัยแม่และเด็ก วิเคราะห์ข้อมูลจากสำนักงานสาธารณสุขอำเภอสบเมย จ.แม่ฮ่องสอน และให้ข้อเสนอแนะเชิงปฏิบัติ:
+
+ข้อมูลสรุป (${count} รายการ):
+• หญิงตั้งครรภ์สะสม: ${s.total} ราย (ยอดยกมา ${s.carry} + รายใหม่สะสม ${s.newPregnant}) | ต่างชาติ: ${s.foreign} ราย
+• R1 เสี่ยงต่ำ: ${s.r1} | R2 เสี่ยงสูง: ${s.r2} | R3 อันตราย: ${s.r3} ราย
+• คลอดรวม: ${s.delivery} | คลอดนอก รพ.: ${s.home} ราย
+• GDM (เบาหวานขณะตั้งครรภ์): ${s.diabetes} ราย
+• พบสารเสพติด: ${s.drug}/${s.drugScreened} | จิตเวช: ${s.psych} ราย
+• KPI ฝากครรภ์ครบ 8 ครั้ง: ${s.anc8}/${s.anc8Target} ราย (${pct(s.anc8,s.anc8Target)}%) เป้าหมาย ≥80%
+• KPI ฝากครรภ์ก่อน 12 สัปดาห์ (คนไทย): ${s.ancEarly}/${s.ancEarlyTarget} ราย (${pct(s.ancEarly,s.ancEarlyTarget)}%) เป้าหมาย ≥80%
+• KPI ตรวจหลังคลอดครบ 3 ครั้ง: ${s.postpartumComplete}/${s.postpartumTarget} ราย (${pct(s.postpartumComplete,s.postpartumTarget)}%) เป้าหมาย ≥80%
+• KPI คุมกำเนิดหญิงโรคอายุรกรรม: ${s.conMed}/${s.conMedT} ราย (${pct(s.conMed,s.conMedT)}%) เป้าหมาย ≥80%
+• KPI คุมกำเนิดหญิงจิตเวช: ${s.conPsych}/${s.conPsychT} ราย (${pct(s.conPsych,s.conPsychT)}%) เป้าหมาย ≥80%
+
+หลักการสำคัญ: ให้ประเมิน KPI จากตัวตั้ง/ตัวหารเฉพาะของตัวชี้วัด ห้ามใช้หญิงตั้งครรภ์สะสมเป็นตัวหารแทน หากตัวหารเป็น 0 ให้ระบุว่า “ยังไม่มีฐานข้อมูลสำหรับประเมิน” และไม่สรุปว่าไม่ผ่านเกณฑ์
+
+กรุณาวิเคราะห์เป็นภาษาไทย แบ่งเป็น 3 หัวข้อ: 1) ประเด็นเร่งด่วน 2) จุดที่ต้องปรับปรุง 3) ข้อเสนอแนะเชิงปฏิบัติ กระชับและนำไปใช้ได้จริง`;
+}
+function aiKpiCardsHtml(s){
+  const kpis = [
+    {label:'ฝากครรภ์ครบ 8 ครั้ง',val:s.anc8,total:s.anc8Target,target:80,icon:'✅'},
+    {label:'ฝากครรภ์ก่อน 12 สัปดาห์ (คนไทย)',val:s.ancEarly,total:s.ancEarlyTarget,target:80,icon:'🇹🇭'},
+    {label:'ตรวจหลังคลอดครบ 3 ครั้ง',val:s.postpartumComplete,total:s.postpartumTarget,target:80,icon:'👶'},
+    {label:'คุมกำเนิด หญิงโรคอายุรกรรม',val:s.conMed,total:s.conMedT,target:80,icon:'💊'},
+    {label:'คุมกำเนิด หญิงจิตเวช',val:s.conPsych,total:s.conPsychT,target:80,icon:'🧠'}
+  ];
+  return `<div class="grid md:grid-cols-2 xl:grid-cols-5 gap-3 mb-4">${kpis.map(k=>{
+    if(k.total<=0) return `<div class="kpi-card bg-gray-50 border-gray-200 text-gray-600"><p class="text-xs font-semibold mb-1">${k.icon} ${k.label}</p><p class="text-2xl font-bold">—</p><p class="text-xs mt-1">${k.val}/${k.total} ราย</p><span class="ai-badge bg-gray-200 text-gray-600 mt-2">ยังไม่มีฐานข้อมูลประเมิน</span></div>`;
+    const r=pct(k.val,k.total), st=aiKpiStatus(r,k.target);
+    return `<div class="kpi-card ${st.cls}"><p class="text-xs font-semibold mb-1">${k.icon} ${k.label}</p><div class="flex items-end gap-2"><p class="text-2xl font-bold">${r}%</p><p class="text-xs opacity-70 mb-1">${k.val}/${k.total} ราย</p></div><div class="mt-2 h-1.5 rounded-full bg-black/10"><div class="h-1.5 rounded-full bg-current" style="width:${Math.min(r,100)}%"></div></div><span class="ai-badge ${st.badge} mt-2">${st.label}</span></div>`;
+  }).join('')}</div>`;
+}
+
+function renderAiResponse(text, count, s){
+  const html = String(text).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\*\*(.*?)\*\*/g,'<b>$1</b>').replace(/^#{1,3}\s+(.+)$/gm,'<p class="font-bold text-gray-800 mt-4 mb-1 text-base">$1</p>').replace(/^[-•]\s+(.+)$/gm,'<li class="ml-4 mb-1 list-disc">$1</li>').replace(/^(\d+)[.)]\s+(.+)$/gm,'<li class="ml-4 mb-1"><b>$1.</b> $2</li>').replace(/\n\n+/g,'</p><p class="mt-2">').replace(/\n/g,'<br>');
+  return `<div class="flex items-start justify-between gap-3 mb-4"><div><p class="text-sm font-bold text-violet-700">✨ Gemini AI วิเคราะห์ข้อมูล</p><h3 class="text-xl font-bold text-gray-800 mt-1">ผลการวิเคราะห์</h3><p class="text-sm text-gray-500 mt-1">วิเคราะห์จากข้อมูล ${count} รายการ</p></div><button class="text-gray-400 hover:text-gray-700 text-lg" onclick="$('aiPanel').classList.add('hidden')">✕</button></div>${aiKpiCardsHtml(s)}<div class="p-4 bg-white rounded-xl border text-sm text-gray-700 leading-relaxed"><p>${html}</p></div>`;
+}
+function aiKpiStatus(rate, target){ if(rate>100) return {cls:'bg-amber-50 border-amber-300 text-amber-700',badge:'bg-amber-100 text-amber-700',label:'⚠️ ตรวจสอบข้อมูล'}; return rate>=target?{cls:'bg-emerald-50 border-emerald-200 text-emerald-700',badge:'bg-emerald-100 text-emerald-700',label:'ผ่านเกณฑ์'}:rate>=target*0.8?{cls:'bg-amber-50 border-amber-200 text-amber-700',badge:'bg-amber-100 text-amber-700',label:'ใกล้เกณฑ์'}:{cls:'bg-rose-50 border-rose-200 text-rose-700',badge:'bg-rose-100 text-rose-700',label:'ต่ำกว่าเกณฑ์'}; }
+function aiRiskLevel(val){ return val===0?{cls:'bg-gray-50 border-gray-200',color:'#6b7280',dot:'🟢'}:val<=2?{cls:'bg-amber-50 border-amber-200',color:'#d97706',dot:'🟡'}:{cls:'bg-rose-50 border-rose-200',color:'#dc2626',dot:'🔴'}; }
+
+function showRuleBasedAnalysis(panel, s, records){
+  const hot = aiHospitalHotspots(records);
+  const hasKey = true;
+
+  // KPI analysis
+  const kpis = [
+    { label:'ฝากครรภ์ครบ 8 ครั้ง', val:s.anc8, total:s.anc8Target, target:80 },
+    { label:'ฝากครรภ์ก่อน 12 สัปดาห์', val:s.ancEarly, total:s.ancEarlyTarget, target:80 },
+    { label:'ตรวจหลังคลอดครบ 3 ครั้ง', val:s.postpartumComplete, total:s.postpartumTarget, target:80 },
+    { label:'คุมกำเนิด หญิงโรคอายุรกรรม', val:s.conMed, total:s.conMedT, target:80 },
+    { label:'คุมกำเนิด หญิงจิตเวช', val:s.conPsych, total:s.conPsychT, target:80 },
+  ];
+  const kpiHTML = kpis.filter(k=>k.total>0).map(k=>{
+    const r=pct(k.val,k.total); const st=aiKpiStatus(r,k.target);
+    return `<div class="kpi-card ${st.cls}"><p class="text-xs font-semibold mb-1">${k.label}</p><div class="flex items-end gap-2"><p class="text-2xl font-bold">${r}%</p><p class="text-xs opacity-70 mb-1">${k.val}/${k.total}</p></div><div class="mt-2 h-1.5 rounded-full bg-black/10"><div class="h-1.5 rounded-full bg-current" style="width:${Math.min(r,100)}%"></div></div><span class="ai-badge ${st.badge} mt-2">${st.label}</span></div>`;
+  }).join('');
+
+  // Issues — ordered by severity
+  const issues = [];
+  if(s.r3>0) issues.push({sev:3, text:`🔴 R3 อันตราย <b>${s.r3} ราย</b> — ต้องติดตามเร่งด่วน ทำทะเบียนรายชื่อเฉพาะราย`});
+  if(s.drug>0) issues.push({sev:3, text:`🔴 พบสารเสพติด <b>${s.drug} ราย</b> (${s.drugRate}%) — เชื่อมงาน MCH กับระบบบำบัดยาเสพติด`});
+  if(s.home>0) issues.push({sev:2, text:`🟡 คลอดนอก รพ. <b>${s.home} ราย</b> (${s.homeRate}%) — ทบทวนแผนคลอดและเส้นทางส่งต่อรายบุคคล`});
+  if(s.r2>0) issues.push({sev:2, text:`🟡 R2 เสี่ยงสูง <b>${s.r2} ราย</b> — นัดประเมินซ้ำและจัดระบบส่งต่อให้ชัดเจน`});
+  if(s.diabetes>0) issues.push({sev:2, text:`🟡 เบาหวานขณะตั้งครรภ์ (GDM) <b>${s.diabetes} ราย</b> — ติดตามระดับน้ำตาล วางแผนคลอดใน รพ.`});
+  if(s.psych>0) issues.push({sev:2, text:`🟡 จิตเวช <b>${s.psych} ราย</b> — ตรวจต่อเนื่องการรับยา ดูแลความปลอดภัยแม่-เด็ก`});
+  if(s.foreign>0) issues.push({sev:1, text:`🟢 ต่างชาติ <b>${s.foreign} ราย</b> — ติดตามสิทธิ์รักษาและการฝากครรภ์ครบตามเกณฑ์`});
+  const anc8Rate=pct(s.anc8,s.anc8Target); if(s.anc8Target>0&&anc8Rate<80) issues.push({sev:2, text:`🟡 ฝากครรภ์ครบ 8 ครั้ง <b>${anc8Rate}%</b> — ต่ำกว่าเป้าหมาย WHO ควรเพิ่มการนัดหมายและติดตาม`});
+  if(s.ancEarlyTarget>0&&s.ancEarlyRate<80) issues.push({sev:1, text:`🟡 ฝากครรภ์ก่อน 12 สัปดาห์ <b>${s.ancEarlyRate}%</b> — ชักชวนฝากครรภ์เร็วขึ้น`});
+  if(s.postpartumTarget>0&&s.postpartumRate<80) issues.push({sev:2, text:`🟡 หลังคลอดครบ 3 ครั้ง <b>${s.postpartumRate}%</b> — ติดตามนัดหมายหลังคลอดให้ครบ`});
+  if(s.conMedT>0&&s.conMedRate<80) issues.push({sev:1, text:`🟡 คุมกำเนิดหญิงโรคอายุรกรรม <b>${s.conMedRate}%</b> — ต่ำกว่าเป้า 80%`});
+  if(s.conPsychT>0&&s.conPsychRate<80) issues.push({sev:1, text:`🟡 คุมกำเนิดหญิงจิตเวช <b>${s.conPsychRate}%</b> — ต่ำกว่าเป้า 80%`});
+  issues.sort((a,b)=>b.sev-a.sev);
+  if(!issues.length) issues.push({sev:0, text:'🟢 ภาพรวมยังไม่พบสัญญาณเสี่ยงเด่น'});
+
+  const urgentCount = issues.filter(i=>i.sev===3).length;
+  const warnCount = issues.filter(i=>i.sev===2).length;
+
+  // Priority actions
+  const actions = [];
+  if(s.r3>0||s.r2>0) actions.push('จัดทำทะเบียน R2/R3 รายชื่อจริง แยกตามสถานบริการ กำหนดผู้รับผิดชอบติดตามทุกสัปดาห์');
+  if(s.home>0) actions.push('ทบทวนหญิงตั้งครรภ์ใกล้คลอดทุกราย ให้มีแผนคลอด สถานที่คลอด เบอร์ประสาน และแผนเดินทางฉุกเฉิน');
+  if(s.r3>0) actions.push('กรณี R3 หรือมีโรคร่วม ให้ประสาน รพ.แม่ข่าย และนัดหมาย ANC/ส่งต่อแบบไม่รอครบกำหนดนัดปกติ');
+  if(s.drug>0||s.psych>0) actions.push('เชื่อมทีม อสม./รพ.สต./งานยาเสพติด/สุขภาพจิต ติดตามบ้านรายพบสารเสพติดหรือมีปัญหาจิตเวช');
+  actions.push('ประชุมคืนข้อมูลรายเดือนให้แต่ละหน่วยบริการ เน้นจุดเสี่ยง 3 อันดับแรก กำหนดมาตรการแก้ไขเฉพาะพื้นที่');
+  if(s.ancEarlyRate<80) actions.push('ประสาน อสม.ค้นหาหญิงตั้งครรภ์ใหม่ในชุมชน ชักชวนฝากครรภ์ก่อน 12 สัปดาห์');
+
+  const hotHTML = hot.length ? hot.map((x,i)=>`<div class="rounded-xl border p-3 bg-white"><div class="flex items-center gap-2 mb-2"><span class="font-bold text-sm text-gray-800">#${i+1} ${esc(x.hospital)}</span></div><div class="grid grid-cols-2 gap-1 text-xs"><div class="flex justify-between"><span class="text-gray-500">R2</span><b class="text-rose-600">${x.r2}</b></div><div class="flex justify-between"><span class="text-gray-500">R3</span><b class="text-violet-700">${x.r3}</b></div><div class="flex justify-between"><span class="text-gray-500">คลอดนอก รพ.</span><b class="text-amber-600">${x.home}</b></div><div class="flex justify-between"><span class="text-gray-500">ยาเสพติด</span><b class="text-red-600">${x.drug}</b></div></div></div>`).join('') : '<p class="text-sm text-gray-400 p-2">ไม่มีพื้นที่เด่น</p>';
+
+  panel.innerHTML = `
+    <div class="flex items-start justify-between gap-3 mb-5">
+      <div>
+        <div class="flex items-center gap-2"><p class="text-sm font-bold text-violet-700">✨ AI วิเคราะห์ข้อมูล</p>${!hasKey?`<button onclick="openAiSettings()" class="ai-badge bg-violet-100 text-violet-700 cursor-pointer">ตั้งค่า GAS URL →</button>`:''}</div>
+        <h3 class="text-xl font-bold text-gray-800 mt-1">ผลการวิเคราะห์สถานการณ์</h3>
+        <p class="text-sm text-gray-500 mt-1">วิเคราะห์จาก <b>${records.length}</b> รายการ | <span class="text-rose-600 font-semibold">${urgentCount} ประเด็นเร่งด่วน</span> · <span class="text-amber-600 font-semibold">${warnCount} ควรติดตาม</span></p>
+      </div>
+      <button class="text-gray-400 hover:text-gray-700 text-xl font-bold" onclick="$('aiPanel').classList.add('hidden')">✕</button>
+    </div>
+    <div class="grid md:grid-cols-4 gap-3 mb-5">
+      <div class="rounded-xl p-3 border ${aiRiskLevel(s.r3).cls}"><p class="text-xs font-semibold text-gray-600">R3 อันตราย</p><p class="text-3xl font-bold mt-1" style="color:${aiRiskLevel(s.r3).color}">${s.r3}</p><p class="text-xs text-gray-400 mt-1">ราย</p></div>
+      <div class="rounded-xl p-3 border ${aiRiskLevel(s.r2).cls}"><p class="text-xs font-semibold text-gray-600">R2 เสี่ยงสูง</p><p class="text-3xl font-bold mt-1" style="color:${aiRiskLevel(s.r2).color}">${s.r2}</p><p class="text-xs text-gray-400 mt-1">ราย</p></div>
+      <div class="rounded-xl p-3 border ${aiRiskLevel(s.home).cls}"><p class="text-xs font-semibold text-gray-600">คลอดนอก รพ.</p><p class="text-3xl font-bold mt-1" style="color:${aiRiskLevel(s.home).color}">${s.home}</p><p class="text-xs text-gray-400 mt-1">ราย (${s.homeRate}%)</p></div>
+      <div class="rounded-xl p-3 border ${aiRiskLevel(s.drug).cls}"><p class="text-xs font-semibold text-gray-600">พบสารเสพติด</p><p class="text-3xl font-bold mt-1" style="color:${aiRiskLevel(s.drug).color}">${s.drug}</p><p class="text-xs text-gray-400 mt-1">ราย (${s.drugRate}%)</p></div>
+    </div>
+    <div class="grid lg:grid-cols-5 gap-4 mb-5">
+      <div class="lg:col-span-3">
+        <h4 class="font-bold text-gray-800 mb-3">ประเด็นที่ต้องดำเนินการ <span class="text-xs font-normal text-gray-400">(เรียงตามความเร่งด่วน)</span></h4>
+        <ul class="space-y-2">${issues.map(i=>`<li class="text-sm text-gray-700 rounded-xl border bg-white/80 px-4 py-3 leading-relaxed">${i.text}</li>`).join('')}</ul>
+      </div>
+      <div class="lg:col-span-2">
+        <h4 class="font-bold text-gray-800 mb-3">พื้นที่ควรติดตามก่อน</h4>
+        <div class="space-y-2">${hotHTML}</div>
+      </div>
+    </div>
+    ${kpiHTML?`<div class="mb-5"><h4 class="font-bold text-gray-800 mb-3">สถานะตัวชี้วัดคุณภาพ</h4><div class="grid md:grid-cols-3 xl:grid-cols-5 gap-3">${kpiHTML}</div></div>`:''}
+    <div>
+      <h4 class="font-bold text-gray-800 mb-3">แนวทางปฏิบัติที่แนะนำ</h4>
+      <ol class="space-y-2">${actions.map((x,i)=>`<li class="flex gap-3 text-sm text-gray-700"><span class="flex-none w-6 h-6 rounded-full bg-violet-100 text-violet-700 font-bold text-xs flex items-center justify-center mt-0.5">${i+1}</span><span>${x}</span></li>`).join('')}</ol>
+    </div>`;
+  panel.scrollIntoView({behavior:'smooth',block:'start'});
+}
+function chartData(){
+  const records = filteredRecords();
+  const pregCumulative = pregnancyMonthlyCumulative(records);
+  const byMonth = {}, hosp = {};
+  records.forEach(r => {
+    const m = r.month || 'ไม่ระบุ';
+    byMonth[m] = byMonth[m] || { total:0, r1:0, r2:0, r3:0, risk:0, delivery:0 };
+    byMonth[m].total = pregCumulative[m] || 0;
+    byMonth[m].r1 += num(r.riskLevel1);
+    byMonth[m].r2 += num(r.riskLevel2);
+    byMonth[m].r3 += num(r.riskLevel3);
+    byMonth[m].risk += num(r.riskLevel2)+num(r.riskLevel3);
+    byMonth[m].delivery += num(r.deliveryHospital)+num(r.deliveryHealthCenter)+num(r.deliveryHome)+num(r.deliveryWay);
+    const h = r.hospitalId || 'ไม่ระบุ';
+    hosp[h] = hosp[h] || { r2:0, r3:0, risk:0, delivery:0 };
+    hosp[h].r2 += num(r.riskLevel2);
+    hosp[h].r3 += num(r.riskLevel3);
+    hosp[h].risk += num(r.riskLevel2)+num(r.riskLevel3);
+    hosp[h].delivery += num(r.deliveryHospital)+num(r.deliveryHealthCenter)+num(r.deliveryHome)+num(r.deliveryWay);
+  });
+  const months = Object.keys(byMonth).sort((a,b)=>fiscalMonthOrder(a)-fiscalMonthOrder(b));
+  const labels = [], r2 = [], r3 = [], risk = [], delivery = [];
+  Object.keys(hosp).slice(0,10).forEach(h => { labels.push(h.replace('รพ.สต.','')); r2.push(hosp[h].r2); r3.push(hosp[h].r3); risk.push(hosp[h].risk); delivery.push(hosp[h].delivery); });
+  return { months:months.map(fiscalMonthLabel), total:months.map(m=>byMonth[m].total), r1:months.map(m=>byMonth[m].r1), r2:months.map(m=>byMonth[m].r2), r3:months.map(m=>byMonth[m].r3), risk:months.map(m=>byMonth[m].risk), delivery:months.map(m=>byMonth[m].delivery), hosp:{labels,r2,r3,risk,delivery} };
+}
+function renderCharts(){
+  if(typeof Chart === 'undefined') return;
+  Object.values(charts).forEach(c => c && c.destroy()); charts = {};
+  const d = chartData();
+  const common = { responsive:true, maintainAspectRatio:false, plugins:{ legend:{ labels:{ font:{ family:'Sarabun' } } } }, scales:{ x:{ ticks:{ font:{ family:'Sarabun' } }, grid:{ display:false } }, y:{ beginAtZero:true, ticks:{ precision:0, font:{ family:'Sarabun' } }, grid:{ color:'#edf2f7' } } } };
+  if($('monthTrendChart')) charts.month = new Chart($('monthTrendChart'), { type:'line', data:{ labels:d.months, datasets:[{ label:'หญิงตั้งครรภ์รวม', data:d.total, borderColor:'#34d399', backgroundColor:'rgba(52,211,153,.16)', tension:.35, fill:true },{ label:'R1 เสี่ยงต่ำ', data:d.r1, borderColor:'#2dd4bf', backgroundColor:'rgba(45,212,191,.10)', tension:.35, fill:true },{ label:'R2 เสี่ยงสูง', data:d.r2, borderColor:'#fb7185', backgroundColor:'rgba(251,113,133,.12)', tension:.35, fill:true },{ label:'R3 อันตราย', data:d.r3, borderColor:'#a78bfa', backgroundColor:'rgba(167,139,250,.12)', tension:.35, fill:true },{ label:'คลอดรวม', data:d.delivery, borderColor:'#60a5fa', backgroundColor:'rgba(96,165,250,.12)', tension:.35, fill:true }] }, options:common });
+  const r2Total = d.r2.reduce((a,b)=>a+b,0), r3Total = d.r3.reduce((a,b)=>a+b,0);
+  if($('riskDonutChart')) charts.risk = new Chart($('riskDonutChart'), { type:'doughnut', data:{ labels:['R2 เสี่ยงสูง','R3 อันตราย'], datasets:[{ data:[r2Total,r3Total], backgroundColor:['#fda4af','#c4b5fd'], borderWidth:0 }] }, options:{ responsive:true, maintainAspectRatio:false, cutout:'68%', plugins:{ legend:{ position:'bottom', labels:{ font:{ family:'Sarabun' } } } } } });
+  if($('hospitalChart')) charts.hospital = new Chart($('hospitalChart'), { type:'bar', data:{ labels:d.hosp.labels, datasets:[{ label:'R2 เสี่ยงสูง', data:d.hosp.r2, backgroundColor:'#fda4af', borderRadius:8 },{ label:'R3 อันตราย', data:d.hosp.r3, backgroundColor:'#c4b5fd', borderRadius:8 },{ label:'คลอดรวม', data:d.hosp.delivery, backgroundColor:'#93c5fd', borderRadius:8 }] }, options:common });
+}
+function row(r){ return `<tr class="border-t"><td class="p-3 font-medium">${esc(r.hospitalId)}</td><td class="p-3 text-center">${esc(r.month)}</td><td class="p-3 text-center">${num(r.pregnantCarry)}</td><td class="p-3 text-center">${num(r.riskLevel2)}</td><td class="p-3 text-center">${num(r.riskLevel3)}</td><td class="p-3 text-center">${num(r.deliveryHealthCenter)+num(r.deliveryHome)+num(r.deliveryWay)}</td><td class="p-3 text-center">${num(r.drugFound)}</td><td class="p-3 text-center"><button class="text-blue-600 px-2" onclick="editRecord('${r.id}')">แก้ไข</button><button class="text-red-600 px-2" onclick="deleteRecord('${r.id}')">ลบ</button></td></tr>`; }
+function num(v){ return Number(v||0); }
+
+function buddhistYearOptions(selectedMonth){
+  const currentBE = new Date().getFullYear() + 543;
+  const years = [];
+  for(let y=2566; y<=currentBE+5; y++) years.push(y);
+  return years;
+}
+function monthYearControls(monthText){
+  const parts = String(monthText || new Date().toISOString().slice(0,7)).split('-');
+  const selectedYearBE = Number(parts[0] || new Date().getFullYear()) + 543;
+  const selectedMonth = String(parts[1] || '01').padStart(2,'0');
+  const months = [['01','มกราคม'],['02','กุมภาพันธ์'],['03','มีนาคม'],['04','เมษายน'],['05','พฤษภาคม'],['06','มิถุนายน'],['07','กรกฎาคม'],['08','สิงหาคม'],['09','กันยายน'],['10','ตุลาคม'],['11','พฤศจิกายน'],['12','ธันวาคม']];
+  const monthSelect = `<label>เดือน<select class="input mt-1" name="entryMonth">${months.map(([value,label])=>`<option value="${value}" ${value===selectedMonth?'selected':''}>${label}</option>`).join('')}</select></label>`;
+  const yearSelect = `<label>ปี พ.ศ.<select class="input mt-1" name="entryYear">${buddhistYearOptions(selectedMonth).map(y=>`<option value="${y}" ${y===selectedYearBE?'selected':''}>${y}</option>`).join('')}</select></label>`;
+  return monthSelect + yearSelect;
+}
+function entryForm(data={}){
+  const d = Object.assign({hospitalId:state.user.role==='admin'?state.boot.hospitals[0]:state.user.hospital, month:new Date().toISOString().slice(0,7), pregnantCarry:0}, data||{}); NUM_FIELDS.forEach(f=>d[f]=d[f]||0);
+  const hs = state.boot.hospitals.filter(h=>h!=='สสอ.สบเมย').map(h=>`<option ${d.hospitalId===h?'selected':''}>${esc(h)}</option>`).join('');
+  const inp=(n,l)=>`<label class="text-sm text-gray-600">${l}<input class="input mt-1" type="number" min="0" name="${n}" value="${esc(d[n])}"></label>`;
+  return `<div class="card p-5 max-w-5xl"><h2 class="text-xl font-bold mb-4">บันทึกข้อมูลรายเดือน</h2><form class="space-y-5" onsubmit="saveRecord(event)"><input type="hidden" name="id" value="${esc(d.id||'')}"><div class="grid md:grid-cols-2 gap-3"><label>สถานบริการ<select class="input mt-1" name="hospitalId" ${state.user.role!=='admin'?'disabled':''}>${hs}</select></label>${monthYearControls(d.month)}</div><div><h3 class="font-bold text-emerald-800 mb-2">หญิงตั้งครรภ์สะสมปีงบประมาณ</h3><p class="text-xs text-amber-700 mb-2">หมายเหตุ: ยอดยกมาใช้เป็นฐานต้นปีงบประมาณและระบบจะนับเพียงครั้งเดียวต่อสถานบริการ ส่วน R0-R3 คือรายใหม่ของแต่ละเดือน</p><div class="grid md:grid-cols-3 gap-3 mb-2">${inp('pregnantCarry','ยอดยกมาต้นปีงบ (รวม)')}${inp('pregnantCarryThai','ยอดยกมาต้นปีงบ คนไทย')}${inp('pregnantCarryForeign','ยอดยกมาต้นปีงบ ต่างชาติ')}</div><div class="grid md:grid-cols-3 gap-3 mb-3">${inp('pregnantTargetThai','เป้าหมาย คนไทย')}${inp('pregnantTargetForeign','เป้าหมาย ต่างชาติ')}${inp('pregnantForeign','หญิงตั้งครรภ์ต่างชาติ (สะสม)')}</div><div class="grid md:grid-cols-4 gap-3">${inp('riskLevel0','ปกติ R0')}${inp('riskLevel1','เสี่ยงต่ำ R1')}${inp('riskLevel2','เสี่ยงสูง R2')}${inp('riskLevel3','อันตราย R3')}</div><div class="mt-3"><p class="text-xs font-semibold text-amber-700 mb-2">🌏 ต่างชาติ แยกเฉพาะ</p><div class="grid md:grid-cols-3 gap-3">${inp('riskLevel1Foreign','R1 ต่างชาติ')}${inp('riskLevel2Foreign','R2 ต่างชาติ')}${inp('riskLevel3Foreign','R3 ต่างชาติ')}</div></div></div><div><h3 class="font-bold text-emerald-800 mb-2">การคลอด</h3><div class="grid md:grid-cols-4 gap-3">${inp('deliveryHospital','คลอดที่รพ.')}${inp('deliveryHealthCenter','คลอดที่รพ.สต.')}${inp('deliveryHome','คลอดที่บ้าน')}${inp('deliveryWay','คลอดระหว่างทาง')}</div><div class="mt-3"><p class="text-xs font-semibold text-emerald-700 mb-2">แยกเขต คลอดที่รพ.สต.</p><div class="grid md:grid-cols-3 gap-3">${inp('deliveryHealthCenterLocal','ในเขต')}${inp('deliveryHealthCenterTak','นอกเขต (ตาก)')}${inp('deliveryHealthCenterChiangMai','นอกเขต (เชียงใหม่)')}</div></div><div class="mt-3"><p class="text-xs font-semibold text-amber-700 mb-2">🌏 ต่างชาติ แยกเฉพาะ</p><div class="grid md:grid-cols-2 gap-3 max-w-xs">${inp('deliveryForeign','คลอดต่างชาติ (รวม)')}</div></div></div><div><h3 class="font-bold text-emerald-800 mb-2">การคัดกรอง</h3><div class="mb-3"><p class="text-sm font-semibold text-rose-700 mb-2">สารเสพติด</p><div class="grid md:grid-cols-4 gap-3">${inp('drugScreened','คัดกรอง (รวม)')}${inp('drugFound','พบสาร (รวม)')}${inp('drugScreenedForeign','คัดกรองต่างชาติ')}${inp('drugFoundForeign','พบสารต่างชาติ')}</div></div><div><p class="text-sm font-semibold text-purple-700 mb-2">จิตเวช</p><div class="grid md:grid-cols-4 gap-3">${inp('psychTotal','จิตเวช (รวม)')}${inp('psychMeds','รับยา (รวม)')}${inp('psychTotalForeign','จิตเวชต่างชาติ')}${inp('psychMedsForeign','รับยาต่างชาติ')}</div></div></div><div><h3 class="font-bold text-emerald-800 mb-2">ฝากครรภ์</h3><div class="grid md:grid-cols-2 gap-3">${inp('ancTarget','หญิงตั้งครรภ์ทั้งหมด/เป้าหมาย ANC เดิม')}${inp('ancComplete','ฝากครรภ์ครบตามเกณฑ์ (≥5 ครั้ง)')}</div><div class="mt-3 rounded-xl bg-emerald-50 border border-emerald-100 p-3"><p class="text-sm font-semibold text-emerald-800 mb-2">ตัวชี้วัด ANC 8 ครั้ง</p><p class="text-xs text-gray-500 mb-2">ตัวหารต้องเป็นหญิงตั้งครรภ์ที่ครบเกณฑ์ประเมิน ANC 8 ครั้ง ไม่ใช่หญิงตั้งครรภ์ทั้งหมด</p><div class="grid md:grid-cols-2 gap-3">${inp('anc8Target','กลุ่มเป้าหมายที่ครบเกณฑ์ประเมิน ANC 8 ครั้ง')}${inp('ancComplete8','ฝากครรภ์ครบ 8 ครั้ง')}</div></div><div class="grid md:grid-cols-2 gap-3 mt-3">${inp('diabetesPregnant','เบาหวานขณะตั้งครรภ์ (GDM)')}</div><div class="grid md:grid-cols-2 gap-3 mt-3"><div class="text-sm text-teal-700 font-semibold col-span-2 -mb-1">หญิงตั้งครรภ์คนไทย ฝากครรภ์ก่อน 12 สัปดาห์</div>${inp('ancEarlyTarget','เป้าหมาย (หญิงไทย)')}${inp('ancEarly','ฝากครรภ์ก่อน 12 สัปดาห์')}</div></div><div><h3 class="font-bold text-emerald-800 mb-2">หลังคลอด</h3><div class="grid md:grid-cols-2 gap-3">${inp('postpartumTarget','หญิงหลังคลอดทั้งหมด (เป้าหมาย)')}${inp('postpartumComplete','ตรวจหลังคลอดครบ 3 ครั้ง')}</div></div><div><h3 class="font-bold text-emerald-800 mb-2">การคุมกำเนิดในหญิงวัยเจริญพันธุ์ 15-49 ปี</h3><div class="mb-3"><p class="text-sm font-semibold text-teal-700 mb-2">โรคทางอายุรกรรม</p><div class="grid md:grid-cols-2 gap-3">${inp('contraceptionMedicalTarget','เป้าหมาย (หญิงโรคอายุรกรรม)')}${inp('contraceptionMedical','ได้รับการคุมกำเนิด')}</div></div><div><p class="text-sm font-semibold text-purple-700 mb-2">จิตเวช</p><div class="grid md:grid-cols-2 gap-3">${inp('contraceptionPsychTarget','เป้าหมาย (หญิงจิตเวช)')}${inp('contraceptionPsych','ได้รับการคุมกำเนิด')}</div></div></div><div><h3 class="font-bold text-emerald-800 mb-1">ผู้รับบริการ รพ.สบเมย (ห้องคลอด/หลังคลอด)</h3><p class="text-xs text-gray-400 mb-2">กรอกเฉพาะ รพ.สบเมย — แยกตามภูมิลำเนาผู้รับบริการ</p><div class="mb-3"><p class="text-sm font-semibold text-blue-700 mb-2">🏥 ห้องคลอด</p><div class="grid md:grid-cols-4 gap-3">${inp('deliveryRoomSopMoei','สบเมย (ในเขต)')}${inp('deliveryRoomTak','ตาก (นอกเขต)')}${inp('deliveryRoomChiangMai','เชียงใหม่ (นอกเขต)')}${inp('deliveryRoomForeign','ต่างชาติ')}</div></div><div><p class="text-sm font-semibold text-rose-700 mb-2">🛏 หลังคลอด</p><div class="grid md:grid-cols-4 gap-3">${inp('postpartumRoomSopMoei','สบเมย (ในเขต)')}${inp('postpartumRoomTak','ตาก (นอกเขต)')}${inp('postpartumRoomChiangMai','เชียงใหม่ (นอกเขต)')}${inp('postpartumRoomForeign','ต่างชาติ')}</div></div></div><div class="text-right"><button type="button" class="btn border mr-2" onclick="goTab('dashboard')">ยกเลิก</button><button class="btn bg-emerald-600 text-white">บันทึก</button></div></form></div>`;
+}
+function editRecord(id){ if(state.user.role==='viewer') return; state.editing=state.records.find(r=>r.id===id); state.tab='entry'; render(); }
+async function saveRecord(e){ e.preventDefault(); if(state.user.role==='viewer'){ alert('บัญชี Viewer ดูข้อมูลได้อย่างเดียว'); return; } const record=Object.fromEntries(new FormData(e.target).entries()); const yearCE=Number(record.entryYear)-543; record.month=yearCE + '-' + String(record.entryMonth).padStart(2,'0'); delete record.entryYear; delete record.entryMonth; if(Number(fiscalYear(record.month))+543 < 2567){ alert('บันทึกได้ตั้งแต่ปีงบประมาณ 2567 เป็นต้นไป'); return; } if(state.user.role!=='admin') record.hospitalId=state.user.hospital; NUM_FIELDS.forEach(f=>record[f]=Number(record[f]||0)); setLoading(true); try { const saved = await run('saveRecord',{user:state.user,record}); await refresh(); state.tab='dashboard'; state.editing=null; if(saved && saved._merged){ alert('มีข้อมูลของสถานบริการนี้ในเดือนนี้อยู่แล้ว ระบบได้ปรับปรุงข้อมูลเดิมให้แทน (ไม่ได้สร้างรายการซ้ำ)'); } } catch(err){ alert('บันทึกไม่สำเร็จ: ' + (err.message || err)); } finally { setLoading(false); } }
+async function deleteRecord(id){ if(state.user.role!=='admin'){ alert('เฉพาะ Admin เท่านั้นที่ลบข้อมูลได้'); return; } if(!confirm('ต้องการลบข้อมูลนี้ใช่หรือไม่?')) return; setLoading(true); try { await run('deleteRecord',{user:state.user,id}); await refresh(); } catch(err){ alert('ลบไม่สำเร็จ: ' + (err.message || err)); } finally { setLoading(false); } }
+function usersView(){ 
+  const roleLabel=r=>r==='admin'?'ผู้ดูแลระบบ':r==='viewer'?'ผู้ดูอย่างเดียว':'เจ้าหน้าที่';
+  return `<div><h2 class="text-xl font-bold mb-4">ผู้ใช้งาน</h2><div class="card overflow-auto"><table class="w-full text-sm"><thead class="bg-gray-50"><tr><th class="p-3 text-left">ชื่อผู้ใช้</th><th class="p-3 text-left">ชื่อ-สกุล</th><th class="p-3 text-left">หน่วยงาน</th><th class="p-3 text-left">สิทธิ์</th><th class="p-3 text-left">สถานะ</th><th class="p-3 text-left">จัดการ</th></tr></thead><tbody>${state.users.map(u=>`<tr class="border-t"><td class="p-3">${esc(u.username)}</td><td class="p-3">${esc(u.name)}</td><td class="p-3">${esc(u.hospital)}</td><td class="p-3"><select class="input py-1" onchange="setUserRoleUi('${u.uid}',this.value)" ${u.uid===state.user.uid?'disabled':''}><option value="staff" ${u.role==='staff'?'selected':''}>Staff</option><option value="viewer" ${u.role==='viewer'?'selected':''}>Viewer</option><option value="admin" ${u.role==='admin'?'selected':''}>Admin</option></select></td><td class="p-3">${u.status==='pending'?'<span class="text-amber-600 font-semibold">รออนุมัติ</span>':u.status==='disabled'?'<span class="text-red-600 font-semibold">ปิดใช้งาน</span>':'<span class="text-emerald-600 font-semibold">ใช้งานได้</span>'}</td><td class="p-3">${u.status==='pending'?`<button class="text-emerald-600 px-2" onclick="approveUser('${u.uid}')">อนุมัติ</button>`:''}${u.uid!==state.user.uid?`<button class="text-amber-600 px-2" onclick="resetUserPasswordUi('${u.uid}','${esc(u.username)}')">รีเซ็ตรหัส</button><button class="text-red-600 px-2" onclick="deleteUserAccount('${u.uid}')">ปิดบัญชี</button>`:''}</td></tr>`).join('')}</tbody></table></div></div>`; 
+}
+async function approveUser(uid){ setLoading(true); try { await run('approveUser',{user:state.user,uid,role:'staff'}); state.users = await run('listUsers', state.user); } catch(err){ alert('อนุมัติไม่สำเร็จ: ' + (err.message || err)); } finally { setLoading(false); } }
+async function setUserRoleUi(uid,role){ if(!confirm('ต้องการเปลี่ยนสิทธิ์ผู้ใช้นี้เป็น '+role+' ใช่หรือไม่?')){ await refresh(); return; } setLoading(true); try { await run('setUserRole',{user:state.user,uid,role}); state.users=await run('listUsers',state.user); } catch(err){ alert('เปลี่ยนสิทธิ์ไม่สำเร็จ: '+(err.message||err)); } finally { setLoading(false); } }
+async function deleteUserAccount(uid){ if(!confirm('ต้องการลบผู้ใช้งานนี้ใช่หรือไม่?')) return; setLoading(true); try { await run('deleteUser',{user:state.user,uid}); state.users = await run('listUsers', state.user); } catch(err){ alert('ลบไม่สำเร็จ: ' + (err.message || err)); } finally { setLoading(false); } }
+
+
+function closePasswordModal(){
+  const el=document.getElementById('passwordModal');
+  if(el) el.remove();
+}
+
+function openChangePassword(){
+  closePasswordModal();
+  const wrap=document.createElement('div');
+  wrap.id='passwordModal';
+  wrap.className='fixed inset-0 z-[100] bg-black/40 flex items-center justify-center p-4';
+  wrap.innerHTML=`
+    <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6">
+      <div class="flex items-center justify-between mb-4">
+        <div>
+          <h3 class="text-xl font-bold text-gray-900">🔑 เปลี่ยนรหัสผ่าน</h3>
+          <p class="text-sm text-gray-500 mt-1">${esc(state.user.username)} · ${esc(state.user.name)}</p>
+        </div>
+        <button type="button" onclick="closePasswordModal()" class="text-gray-400 text-2xl leading-none">×</button>
+      </div>
+      <form onsubmit="submitChangePassword(event)" class="space-y-4">
+        <div>
+          <label class="block text-sm font-semibold mb-1">รหัสผ่านปัจจุบัน</label>
+          <input name="currentPassword" type="password" class="input" autocomplete="current-password" required>
+        </div>
+        <div>
+          <label class="block text-sm font-semibold mb-1">รหัสผ่านใหม่</label>
+          <input name="newPassword" type="password" class="input" minlength="8" autocomplete="new-password" required>
+          <p class="text-xs text-gray-500 mt-1">อย่างน้อย 8 ตัวอักษร</p>
+        </div>
+        <div>
+          <label class="block text-sm font-semibold mb-1">ยืนยันรหัสผ่านใหม่</label>
+          <input name="confirmPassword" type="password" class="input" minlength="8" autocomplete="new-password" required>
+        </div>
+        <div id="passwordError" class="hidden rounded-lg p-3 text-sm"></div>
+        <div class="flex justify-end gap-2 pt-2">
+          <button type="button" onclick="closePasswordModal()" class="btn border bg-white">ยกเลิก</button>
+          <button type="submit" class="btn bg-emerald-600 text-white">บันทึกรหัสผ่านใหม่</button>
+        </div>
+      </form>
+    </div>`;
+  document.body.appendChild(wrap);
+}
+
+async function submitChangePassword(e){
+  e.preventDefault();
+  const form=e.target;
+  const currentPassword=form.currentPassword.value;
+  const newPassword=form.newPassword.value;
+  const confirmPassword=form.confirmPassword.value;
+  const box=document.getElementById('passwordError');
+
+  if(newPassword.length<8){
+    box.className='rounded-lg p-3 text-sm bg-red-50 text-red-700';
+    box.textContent='รหัสผ่านใหม่ต้องมีอย่างน้อย 8 ตัวอักษร';
+    return;
+  }
+  if(newPassword!==confirmPassword){
+    box.className='rounded-lg p-3 text-sm bg-red-50 text-red-700';
+    box.textContent='รหัสผ่านใหม่และการยืนยันรหัสผ่านไม่ตรงกัน';
+    return;
+  }
+  if(currentPassword===newPassword){
+    box.className='rounded-lg p-3 text-sm bg-red-50 text-red-700';
+    box.textContent='รหัสผ่านใหม่ต้องแตกต่างจากรหัสผ่านเดิม';
+    return;
+  }
+
+  const submitBtn=form.querySelector('button[type="submit"]');
+  submitBtn.disabled=true;
+  submitBtn.textContent='กำลังบันทึก...';
+  try{
+    await run('changePassword',{user:state.user,currentPassword,newPassword});
+    closePasswordModal();
+    alert('เปลี่ยนรหัสผ่านสำเร็จ\n\nเพื่อความปลอดภัย กรุณาเข้าสู่ระบบใหม่ด้วยรหัสผ่านใหม่');
+    await logout();
+  }catch(err){
+    box.className='rounded-lg p-3 text-sm bg-red-50 text-red-700';
+    box.textContent='เปลี่ยนรหัสผ่านไม่สำเร็จ: '+(err.message||err);
+    submitBtn.disabled=false;
+    submitBtn.textContent='บันทึกรหัสผ่านใหม่';
+  }
+}
+
+async function resetUserPasswordUi(uid,username){
+  if(state.user.role!=='admin') return;
+  if(!confirm('ต้องการรีเซ็ตรหัสผ่านของ '+username+' ใช่หรือไม่?\n\nระบบจะสร้างรหัสผ่านชั่วคราวใหม่ และเซสชันเดิมของผู้ใช้นี้จะถูกยกเลิก')) return;
+  setLoading(true);
+  try{
+    const result=await run('resetUserPassword',{user:state.user,uid});
+    await refresh();
+    render();
+    showTemporaryPassword(result);
+  }catch(err){
+    alert('รีเซ็ตรหัสผ่านไม่สำเร็จ: '+(err.message||err));
+  }finally{
+    state.loading=false;
+  }
+}
+
+function showTemporaryPassword(result){
+  const wrap=document.createElement('div');
+  wrap.id='passwordModal';
+  wrap.className='fixed inset-0 z-[100] bg-black/40 flex items-center justify-center p-4';
+  wrap.innerHTML=`
+    <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6">
+      <h3 class="text-xl font-bold text-gray-900">♻️ รีเซ็ตรหัสผ่านสำเร็จ</h3>
+      <p class="text-sm text-gray-600 mt-2">ชื่อผู้ใช้: <b>${esc(result.username||'')}</b></p>
+      <p class="text-sm text-gray-600 mt-4">รหัสผ่านชั่วคราว</p>
+      <div class="mt-2 flex gap-2">
+        <input id="tempPasswordValue" class="input font-mono text-base" value="${esc(result.temporaryPassword||'')}" readonly>
+        <button type="button" onclick="copyTemporaryPassword()" class="btn border bg-white whitespace-nowrap">คัดลอก</button>
+      </div>
+      <div class="mt-4 rounded-xl bg-amber-50 text-amber-800 p-3 text-sm">
+        ให้ส่งรหัสนี้แก่เจ้าของบัญชีผ่านช่องทางที่เหมาะสม และให้ผู้ใช้เปลี่ยนรหัสผ่านหลังเข้าสู่ระบบ
+        ระบบจะไม่แสดงรหัสผ่านชั่วคราวนี้อีกหลังปิดหน้าต่าง
+      </div>
+      <div class="flex justify-end mt-5">
+        <button type="button" onclick="closePasswordModal()" class="btn bg-emerald-600 text-white">รับทราบ</button>
+      </div>
+    </div>`;
+  document.body.appendChild(wrap);
+}
+
+async function copyTemporaryPassword(){
+  const el=document.getElementById('tempPasswordValue');
+  if(!el) return;
+  try{
+    await navigator.clipboard.writeText(el.value);
+    alert('คัดลอกรหัสผ่านชั่วคราวแล้ว');
+  }catch(e){
+    el.select();
+    document.execCommand('copy');
+    alert('คัดลอกรหัสผ่านชั่วคราวแล้ว');
+  }
+}
+
+async function exportExcelSecure(){ if(state.user.role!=='admin') return; try { await run('exportRecords',{user:state.user}); } catch(e){ alert('ส่งออกไม่ได้: '+(e.message||e)); return; } const rows=filteredRecords().map(r=>({'สถานบริการ':r.hospitalId,'ประจำเดือน':r.month,'ปีงบประมาณ':Number(fiscalYear(r.month))+543,'หญิงตั้งครรภ์ยอดยกมา':r.pregnantCarry,'หญิงตั้งครรภ์ต่างชาติ':r.pregnantForeign,'ครรภ์ปกติ(R0)':r.riskLevel0,'เสี่ยงต่ำ(R1)':r.riskLevel1,'เสี่ยงสูง(R2)':r.riskLevel2,'อันตราย(R3)':r.riskLevel3,'คลอดที่รพ.':r.deliveryHospital,'คลอดที่รพ.สต.':r.deliveryHealthCenter,'คลอดที่บ้าน':r.deliveryHome,'คลอดระหว่างทาง':r.deliveryWay,'คัดกรองสารเสพติด':r.drugScreened,'พบสารเสพติด':r.drugFound,'หญิงตั้งครรภ์จิตเวช':r.psychTotal,'รับยาต่อเนื่อง':r.psychMeds,'เป้าหมายฝากครรภ์':r.ancTarget,'ฝากครรภ์ครบตามเกณฑ์':r.ancComplete,'เป้าหมายฝากครรภ์คนไทย':r.ancEarlyTarget,'ฝากครรภ์ก่อน 12 สัปดาห์':r.ancEarly,'เป้าหมายหลังคลอด':r.postpartumTarget,'ตรวจหลังคลอดครบ':r.postpartumComplete,'เป้าหมายหญิงโรคอายุรกรรม':r.contraceptionMedicalTarget,'คุมกำเนิดโรคอายุรกรรม':r.contraceptionMedical,'เป้าหมายหญิงจิตเวช':r.contraceptionPsychTarget,'คุมกำเนิดจิตเวช':r.contraceptionPsych,'ยอดยกมาคนไทย':r.pregnantCarryThai,'ยอดยกมาต่างชาติ':r.pregnantCarryForeign,'เป้าหมายหญิงตั้งครรภ์ไทย':r.pregnantTargetThai,'เป้าหมายหญิงตั้งครรภ์ต่างชาติ':r.pregnantTargetForeign,'เบาหวานขณะตั้งครรภ์':r.diabetesPregnant,'กลุ่มเป้าหมาย ANC 8 ครั้ง':r.anc8Target,'ฝากครรภ์ครบ 8 ครั้ง':r.ancComplete8,'ห้องคลอดสบเมย':r.deliveryRoomSopMoei,'ห้องคลอดตาก':r.deliveryRoomTak,'ห้องคลอดเชียงใหม่':r.deliveryRoomChiangMai,'ห้องคลอดต่างชาติ':r.deliveryRoomForeign,'หลังคลอดสบเมย':r.postpartumRoomSopMoei,'หลังคลอดตาก':r.postpartumRoomTak,'หลังคลอดเชียงใหม่':r.postpartumRoomChiangMai,'หลังคลอดต่างชาติ':r.postpartumRoomForeign,'คลอดต่างชาติ':r.deliveryForeign,'R1 ต่างชาติ':r.riskLevel1Foreign,'R2 ต่างชาติ':r.riskLevel2Foreign,'R3 ต่างชาติ':r.riskLevel3Foreign,'คัดกรองสารเสพติดต่างชาติ':r.drugScreenedForeign,'พบสารเสพติดต่างชาติ':r.drugFoundForeign,'จิตเวชต่างชาติ':r.psychTotalForeign,'รับยาต่อเนื่องต่างชาติ':r.psychMedsForeign,'คลอดรพ.สต.ในเขต':r.deliveryHealthCenterLocal,'คลอดรพ.สต.นอกเขตตาก':r.deliveryHealthCenterTak,'คลอดรพ.สต.นอกเขตเชียงใหม่':r.deliveryHealthCenterChiangMai})); const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(rows),'MCH_Data'); XLSX.writeFile(wb,`MCH_SopMoei_${Date.now()}.xlsx`); }
+async function importFile(e){ if(state.user.role!=='admin'){ alert('เฉพาะ Admin เท่านั้นที่นำเข้าข้อมูลได้'); return; } const file=e.target.files[0]; if(!file) return; const wb=XLSX.read(await file.arrayBuffer(),{type:'array'}); const rows=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{defval:''}); const records=rows.map(row=>{const item={}; Object.keys(FIELD_MAP).forEach(f=>{const k=FIELD_MAP[f].find(key=>Object.prototype.hasOwnProperty.call(row,key)); item[f]=k?row[k]:'';}); NUM_FIELDS.forEach(f=>item[f]=Number(item[f]||0)); return item;}); setLoading(true); try { await run('importRecords',{user:state.user,records}); await refresh(); } catch(err){ alert('นำเข้าไม่สำเร็จ: ' + (err.message || err)); } finally { setLoading(false); } }
+
+
+window.addEventListener('load', init);
+</script>
+</body>
+</html>
