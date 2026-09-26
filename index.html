@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <!-- Secure V3.2.2 Viewer Read-only Fix -->
+  <!-- Secure V3.2.3 Performance Fix -->
 <title>ระบบระบาดวิทยาไข้เลือดออก อำเภอสบเมย</title>
   <script src="assets/vendor/chart.js"></script>
   <script src="assets/vendor/xlsx.full.min.js"></script>
@@ -973,7 +973,15 @@ async function handleLogin() {
     sessionStorage.setItem('active_user', res.user.name || res.user.username);
     sessionStorage.setItem('user_role', res.user.role || 'viewer');
     document.getElementById('loginPassword').value='';
-    await checkAuth();
+    // V3.2.3 Performance: login ตอบข้อมูลผู้ใช้มาแล้ว ไม่เรียก me ซ้ำ
+    currentUser = res.user;
+    currentUserRole = res.user.role || 'viewer';
+    document.getElementById('authScreen').classList.add('hidden');
+    document.getElementById('appContainer').classList.remove('hidden');
+    document.getElementById('displayUser').textContent = res.user.name || res.user.username || 'User';
+    document.getElementById('adminBadge').classList.toggle('hidden', currentUserRole !== 'admin');
+    applyRolePermissions();
+    initApp();
   } else {
     msg.style.color='#e53e3e'; msg.textContent=res.message || 'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง';
   }
@@ -1402,26 +1410,14 @@ async function refreshAllData(isManual = false) {
   if (isManual) showLoader("กำลังดึงข้อมูลล่าสุด...");
 
   try {
-    const [pRes, dRes] = await Promise.allSettled([
-      callGAS("listPatients"),
-      callGAS("dashboardSummary", { year: new Date().getFullYear() })
-    ]);
-
-    const pOutcome = pRes.status === 'fulfilled' ? pRes.value : null;
-    const dOutcome = dRes.status === 'fulfilled' ? dRes.value : null;
-
-    if (pOutcome && pOutcome.success) {
-      patientsData = pOutcome.data || [];
+    // V3.2.3 Performance: ขอข้อมูลเริ่มต้นครั้งเดียว ลด GAS/Sheets round-trip ลงครึ่งหนึ่ง
+    const boot = await callGAS('bootstrapData', { year: new Date().getFullYear() }, 30000, true);
+    if (boot && boot.success) {
+      patientsData = Array.isArray(boot.patients) ? boot.patients : [];
+      dashboardData = boot.dashboard || {};
       writeDataCache(patientsData, dashboardData);
-    } else if (pOutcome) {
-      console.warn('listPatients failed', pOutcome.message || pOutcome);
-    }
-
-    if (dOutcome && dOutcome.success) {
-      dashboardData = dOutcome.data || {};
-      writeDataCache(patientsData, dashboardData);
-    } else if (dOutcome) {
-      console.warn('dashboardSummary failed', dOutcome.message || dOutcome);
+    } else {
+      console.warn('bootstrapData failed', boot && (boot.message || boot));
     }
 
     queueFastUiRefresh();
@@ -3623,4 +3619,3 @@ function createMockDataForPreview() {
 </script>
 </body>
 </html>
-
